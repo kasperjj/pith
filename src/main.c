@@ -209,22 +209,33 @@ int main(int argc, char *argv[]) {
     if (g_debug) {
         pith_debug_print_state(rt);
     }
-    
+
+    /* Check if there's a UI to display */
+    PithView *view = pith_runtime_get_view(rt);
+    if (!view) {
+        /* No ui slot defined - just exit cleanly */
+        if (g_debug) {
+            fprintf(stderr, "[DEBUG] No ui slot defined, exiting without opening window\n");
+        }
+        pith_runtime_free(rt);
+        return 0;
+    }
+
     /* Create UI */
     PithUIConfig ui_config = pith_ui_default_config();
-    
+
     /* Build window title */
     char title[256];
     snprintf(title, sizeof(title), "Pith - %s", project_path);
     ui_config.title = title;
-    
+
     PithUI *ui = pith_ui_new(ui_config);
     if (!ui) {
         fprintf(stderr, "Failed to create UI\n");
         pith_runtime_free(rt);
         return 1;
     }
-    
+
     /* Main loop */
     while (!pith_ui_should_close(ui)) {
         /* Begin frame */
