@@ -6,8 +6,7 @@
 # Root component - the base for all UI
 root:
     parent: component
-    ui: app
-    
+
     # Style defaults (cascade to children)
     color: "white"
     background: "black"
@@ -105,11 +104,18 @@ status-bar:
     parent: root
     background: "gray"
     padding: 1
-    
+
     ui:
         [
             app.status text
             "Ln 1, Col 1" text
         ] hstack
     end
+end
+
+# Mount the app UI
+
+
+ui:
+    app
 end

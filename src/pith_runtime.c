@@ -238,6 +238,9 @@ void pith_value_free(PithValue value) {
         case VAL_BLOCK:
             free(value.as.block);
             break;
+        case VAL_DICT:
+            pith_dict_free(value.as.dict);
+            break;
         default:
             break;
     }
@@ -968,13 +971,27 @@ bool pith_execute_word(PithRuntime *rt, const char *name) {
     if (rt->current_dict) {
         PithSlot *slot = pith_dict_lookup(rt->current_dict, name);
         if (slot) {
-            bool result = pith_execute_slot(rt, slot);
-            g_exec_depth--;
-            return result;
+            /* If slot is a cached dictionary, execute its ui slot */
+            if (slot->is_cached && slot->cached.type == VAL_DICT) {
+                PithDict *dict = slot->cached.as.dict;
+                PithSlot *ui_slot = pith_dict_lookup(dict, "ui");
+                if (ui_slot) {
+                    PithDict *saved_dict = rt->current_dict;
+                    rt->current_dict = dict;
+                    bool result = pith_execute_slot(rt, ui_slot);
+                    rt->current_dict = saved_dict;
+                    g_exec_depth--;
+                    return result;
+                }
+            } else {
+                bool result = pith_execute_slot(rt, slot);
+                g_exec_depth--;
+                return result;
+            }
         }
     }
 
-    /* Check if it's a dictionary name - execute its ui slot */
+    /* Check if it's a dictionary name in root - execute its ui slot */
     PithDict *dict = pith_find_dict(rt, name);
     if (dict) {
         PithSlot *ui_slot = pith_dict_lookup(dict, "ui");
@@ -1185,10 +1202,7 @@ void pith_runtime_free(PithRuntime *rt) {
         free(rt->tokens[i].text);
     }
     
-    /* Free dictionaries */
-    for (size_t i = 0; i < rt->dict_count; i++) {
-        pith_dict_free(rt->dicts[i]);
-    }
+    /* Free root dictionary (dictionaries are now slots with cached VAL_DICT values) */
     pith_dict_free(rt->root);
     
     /* Free project path */
@@ -1212,15 +1226,18 @@ bool pith_runtime_load_project(PithRuntime *rt, const char *path) {
     }
     
     /* Create default runtime.pith */
-    const char *default_runtime = 
+    const char *default_runtime =
         "# Default Pith runtime\n"
         "\n"
-        "root:\n"
-        "    parent: component\n"
-        "    \n"
+        "app:\n"
         "    ui:\n"
         "        [\"Welcome to Pith\" text] vstack\n"
         "    end\n"
+        "end\n"
+        "\n"
+        "# Mount the UI\n"
+        "ui:\n"
+        "    app\n"
         "end\n";
     
     /* Ensure directory exists and write default */
@@ -1243,23 +1260,34 @@ bool pith_runtime_load_file(PithRuntime *rt, const char *path) {
     return result;
 }
 
-/* Find a dictionary by name */
+/* Find a dictionary by name - looks up slot with cached VAL_DICT in root */
 static PithDict* pith_find_dict(PithRuntime *rt, const char *name) {
-    for (size_t i = 0; i < rt->dict_count; i++) {
-        if (rt->dicts[i]->name && strcmp(rt->dicts[i]->name, name) == 0) {
-            return rt->dicts[i];
+    /* Look for a slot with this name in root that has a cached dict value */
+    for (size_t i = 0; i < rt->root->slot_count; i++) {
+        PithSlot *slot = &rt->root->slots[i];
+        if (slot->name && strcmp(slot->name, name) == 0) {
+            if (slot->is_cached && slot->cached.type == VAL_DICT) {
+                return slot->cached.as.dict;
+            }
         }
     }
     return NULL;
 }
 
-/* Add a dictionary to the runtime */
-static bool pith_add_dict(PithRuntime *rt, PithDict *dict) {
-    if (rt->dict_count >= PITH_DICT_MAX) {
-        pith_error(rt, "Too many dictionaries");
-        return false;
+/* Add a dictionary as a slot in the root dictionary */
+static bool pith_add_dict_slot(PithRuntime *rt, PithDict *dict, size_t body_start, size_t body_end) {
+    if (rt->root->slot_count >= rt->root->slot_capacity) {
+        rt->root->slot_capacity = rt->root->slot_capacity ? rt->root->slot_capacity * 2 : 8;
+        rt->root->slots = realloc(rt->root->slots, rt->root->slot_capacity * sizeof(PithSlot));
     }
-    rt->dicts[rt->dict_count++] = dict;
+
+    PithSlot *slot = &rt->root->slots[rt->root->slot_count++];
+    slot->name = pith_strdup(dict->name);
+    slot->body_start = body_start;
+    slot->body_end = body_end;
+    slot->is_cached = true;
+    slot->cached = PITH_DICT(dict);
+
     return true;
 }
 
@@ -1278,104 +1306,161 @@ bool pith_runtime_load_string(PithRuntime *rt, const char *source, const char *n
         /* Skip EOF */
         if (tok->type == TOK_EOF) break;
 
-        /* Look for dictionary definition: WORD COLON at top level */
+        /* Look for WORD COLON at top level - could be dictionary or root slot */
         if (tok->type == TOK_WORD &&
             i + 1 < rt->token_count &&
             rt->tokens[i + 1].type == TOK_COLON) {
 
-            /* Create new dictionary */
-            PithDict *dict = pith_dict_new(tok->text);
-            if (!pith_add_dict(rt, dict)) {
-                pith_dict_free(dict);
-                return false;
-            }
+            char *block_name = tok->text;
+            size_t block_start = i + 2; /* After name and colon */
 
-            size_t dict_start = i + 2; /* After name and colon */
+            /* Find the block's closing 'end' by tracking nesting */
+            /* Track depth for blocks (do/if) and whether there's an open MULTI-LINE slot */
+            /* Multi-line slots consume an 'end', single-line slots don't */
+            size_t block_end = block_start;
+            int depth = 1;
+            bool slot_open[64] = {false}; /* slot_open[d] = true if there's a multi-line slot at depth d */
 
-            /* Find the dictionary's closing 'end' by tracking nesting */
-            size_t dict_end = dict_start;
-            int depth = 1; /* We're inside the dict */
-            for (size_t j = dict_start; j < rt->token_count; j++) {
+            for (size_t j = block_start; j < rt->token_count; j++) {
                 PithTokenType t = rt->tokens[j].type;
                 if (t == TOK_DO || t == TOK_IF) {
                     depth++;
+                } else if (t == TOK_WORD &&
+                           j + 1 < rt->token_count &&
+                           rt->tokens[j + 1].type == TOK_COLON) {
+                    /* WORD COLON - check if this is a multi-line slot */
+                    /* A slot is multi-line if its body contains tokens on different lines */
+                    size_t slot_line = rt->tokens[j].line;
+                    bool is_multiline = false;
+
+                    /* Look ahead to see if slot body spans multiple lines */
+                    for (size_t k = j + 2; k < rt->token_count; k++) {
+                        PithTokenType tk = rt->tokens[k].type;
+                        /* Stop at END or next WORD COLON */
+                        if (tk == TOK_END) break;
+                        if (tk == TOK_WORD && k + 1 < rt->token_count &&
+                            rt->tokens[k + 1].type == TOK_COLON) break;
+                        /* If any token is on a different line, slot is multi-line */
+                        if (rt->tokens[k].line > slot_line) {
+                            is_multiline = true;
+                            break;
+                        }
+                    }
+
+                    if (is_multiline) {
+                        slot_open[depth] = true;
+                    }
+                    j++; /* Skip the colon */
                 } else if (t == TOK_END) {
-                    depth--;
-                    if (depth == 0) {
-                        dict_end = j;
-                        break;
+                    if (slot_open[depth]) {
+                        /* This END closes a multi-line slot */
+                        slot_open[depth] = false;
+                    } else {
+                        /* This END closes a block (do/if/dictionary) */
+                        depth--;
+                        if (depth == 0) {
+                            block_end = j;
+                            break;
+                        }
                     }
                 } else if (t == TOK_EOF) {
-                    pith_error(rt, "Unexpected end of file in dictionary '%s'", dict->name);
+                    pith_error(rt, "Unexpected end of file in block '%s'", block_name);
                     return false;
                 }
             }
 
-            /* Parse slots within [dict_start, dict_end) */
-            i = dict_start;
-            while (i < dict_end) {
-                tok = &rt->tokens[i];
-
-                /* Slot definition: WORD COLON */
-                if (tok->type == TOK_WORD &&
-                    i + 1 < dict_end &&
-                    rt->tokens[i + 1].type == TOK_COLON) {
-
-                    char *slot_name = tok->text;
-                    i += 2; /* Skip name and colon */
-
-                    /* Find the end of the slot body */
-                    size_t body_start = i;
-                    int slot_depth = 0;
-
-                    while (i < dict_end) {
-                        PithTokenType t = rt->tokens[i].type;
-
-                        /* Track nesting for do...end, if...end blocks */
-                        if (t == TOK_DO || t == TOK_IF) {
-                            slot_depth++;
-                        } else if (t == TOK_END) {
-                            if (slot_depth > 0) {
-                                slot_depth--;
-                            } else {
-                                /* This 'end' closes our slot (multi-line slot) */
-                                break;
-                            }
-                        } else if (slot_depth == 0 && t == TOK_WORD &&
-                                   i + 1 < dict_end &&
-                                   rt->tokens[i + 1].type == TOK_COLON) {
-                            /* Next slot starts - this slot has implicit end */
-                            break;
-                        }
-                        i++;
-                    }
-
-                    size_t body_end = i;
-
-                    /* Skip the slot's 'end' if present (but not dict's end) */
-                    if (i < dict_end && rt->tokens[i].type == TOK_END) {
-                        i++;
-                    }
-
-                    /* Add the slot */
-                    pith_dict_add_slot(dict, slot_name, body_start, body_end);
-                } else {
-                    /* Skip unexpected token */
-                    i++;
-                }
+            /* Determine if this is a dictionary (has slot definitions) or a root slot */
+            /* If first token is WORD and second is COLON, it's a dictionary */
+            bool is_dictionary = false;
+            if (block_start < block_end &&
+                rt->tokens[block_start].type == TOK_WORD &&
+                block_start + 1 < block_end &&
+                rt->tokens[block_start + 1].type == TOK_COLON) {
+                is_dictionary = true;
             }
 
-            /* Move past the dictionary's closing 'end' */
-            i = dict_end + 1;
+            if (is_dictionary) {
+                /* Create new dictionary and add as slot in root */
+                PithDict *dict = pith_dict_new(block_name);
+                if (!pith_add_dict_slot(rt, dict, block_start, block_end)) {
+                    pith_dict_free(dict);
+                    return false;
+                }
+
+                /* Parse slots within [block_start, block_end) */
+                i = block_start;
+                while (i < block_end) {
+                    tok = &rt->tokens[i];
+
+                    /* Slot definition: WORD COLON */
+                    if (tok->type == TOK_WORD &&
+                        i + 1 < block_end &&
+                        rt->tokens[i + 1].type == TOK_COLON) {
+
+                        char *slot_name = tok->text;
+                        i += 2; /* Skip name and colon */
+
+                        /* Find the end of the slot body */
+                        size_t body_start = i;
+                        int slot_depth = 0;
+
+                        while (i < block_end) {
+                            PithTokenType t = rt->tokens[i].type;
+
+                            /* Track nesting for do...end, if...end blocks */
+                            if (t == TOK_DO || t == TOK_IF) {
+                                slot_depth++;
+                            } else if (t == TOK_END) {
+                                if (slot_depth > 0) {
+                                    slot_depth--;
+                                } else {
+                                    /* This 'end' closes our slot (multi-line slot) */
+                                    break;
+                                }
+                            } else if (slot_depth == 0 && t == TOK_WORD &&
+                                       i + 1 < block_end &&
+                                       rt->tokens[i + 1].type == TOK_COLON) {
+                                /* Next slot starts - this slot has implicit end */
+                                break;
+                            }
+                            i++;
+                        }
+
+                        size_t body_end = i;
+
+                        /* Skip the slot's 'end' if present (but not dict's end) */
+                        if (i < block_end && rt->tokens[i].type == TOK_END) {
+                            i++;
+                        }
+
+                        /* Add the slot */
+                        pith_dict_add_slot(dict, slot_name, body_start, body_end);
+                    } else {
+                        /* Skip unexpected token */
+                        i++;
+                    }
+                }
+            } else {
+                /* This is a slot for the root dictionary */
+                pith_dict_add_slot(rt->root, block_name, block_start, block_end);
+            }
+
+            /* Move past the block's closing 'end' */
+            i = block_end + 1;
         } else {
             /* Skip unexpected token at top level */
             i++;
         }
     }
 
-    /* Second pass: resolve parent references */
-    for (size_t d = 0; d < rt->dict_count; d++) {
-        PithDict *dict = rt->dicts[d];
+    /* Second pass: resolve parent references for all dictionaries stored as slots */
+    for (size_t d = 0; d < rt->root->slot_count; d++) {
+        PithSlot *dict_slot = &rt->root->slots[d];
+        if (!dict_slot->is_cached || dict_slot->cached.type != VAL_DICT) {
+            continue; /* Not a dictionary slot */
+        }
+
+        PithDict *dict = dict_slot->cached.as.dict;
         PithSlot *parent_slot = NULL;
 
         /* Find parent slot in this dict (not following inheritance) */
@@ -1397,15 +1482,26 @@ bool pith_runtime_load_string(PithRuntime *rt, const char *source, const char *n
         }
     }
 
-    /* Set current_dict to 'app' if it exists, otherwise first dict with 'ui' slot */
-    PithDict *app = pith_find_dict(rt, "app");
-    if (app) {
-        rt->current_dict = app;
-    } else {
-        for (size_t d = 0; d < rt->dict_count; d++) {
-            if (pith_dict_lookup(rt->dicts[d], "ui")) {
-                rt->current_dict = rt->dicts[d];
-                break;
+    /* Set current dictionary to the file-level root */
+    rt->current_dict = rt->root;
+
+    /* Execute the root dictionary's 'ui' slot if it exists */
+    PithSlot *ui_slot = pith_dict_lookup(rt->root, "ui");
+    if (ui_slot) {
+        if (g_debug) {
+            fprintf(stderr, "[DEBUG] Executing root ui slot: tokens %zu-%zu\n",
+                    ui_slot->body_start, ui_slot->body_end);
+        }
+        pith_execute_slot(rt, ui_slot);
+
+        /* If a view is on the stack, use it as the root view */
+        if (pith_stack_has(rt, 1)) {
+            PithValue v = pith_peek(rt);
+            if (PITH_IS_VIEW(v)) {
+                rt->current_view = pith_pop(rt).as.view;
+                if (g_debug) {
+                    fprintf(stderr, "[DEBUG] Root view set from ui slot\n");
+                }
             }
         }
     }
@@ -1446,22 +1542,8 @@ void pith_runtime_handle_event(PithRuntime *rt, PithEvent event) {
 }
 
 PithView* pith_runtime_get_view(PithRuntime *rt) {
-    /* Execute ui slot and return result */
-    if (rt->current_dict) {
-        PithSlot *ui_slot = pith_dict_lookup(rt->current_dict, "ui");
-        if (ui_slot) {
-            pith_execute_slot(rt, ui_slot);
-            if (pith_stack_has(rt, 1)) {
-                PithValue v = pith_pop(rt);
-                if (PITH_IS_VIEW(v)) {
-                    /* Free old view */
-                    pith_view_free(rt->current_view);
-                    rt->current_view = v.as.view;
-                    return rt->current_view;
-                }
-            }
-        }
-    }
+    /* Return the view that was set by top-level code execution */
+    /* In the future, this could re-execute for reactivity */
     return rt->current_view;
 }
 
@@ -1496,27 +1578,49 @@ void pith_debug_print_state(PithRuntime *rt) {
     fprintf(stderr, "\n=== PITH DEBUG STATE ===\n\n");
 
     fprintf(stderr, "Token count: %zu\n", rt->token_count);
-    fprintf(stderr, "Dictionary count: %zu\n", rt->dict_count);
+    fprintf(stderr, "Root slot count: %zu\n", rt->root->slot_count);
     fprintf(stderr, "Current dict: %s\n", rt->current_dict ? rt->current_dict->name : "(null)");
 
-    fprintf(stderr, "\n--- Dictionaries ---\n");
-    for (size_t i = 0; i < rt->dict_count; i++) {
-        PithDict *dict = rt->dicts[i];
-        fprintf(stderr, "\n[%zu] %s", i, dict->name ? dict->name : "(unnamed)");
-        if (dict->parent) {
-            fprintf(stderr, " : %s", dict->parent->name ? dict->parent->name : "(unnamed)");
-        }
-        fprintf(stderr, "\n");
+    fprintf(stderr, "\n--- Root Slots ---\n");
+    for (size_t i = 0; i < rt->root->slot_count; i++) {
+        PithSlot *root_slot = &rt->root->slots[i];
 
-        for (size_t s = 0; s < dict->slot_count; s++) {
-            PithSlot *slot = &dict->slots[s];
-            fprintf(stderr, "    %s: [tokens %zu-%zu]",
-                    slot->name, slot->body_start, slot->body_end);
+        if (root_slot->is_cached && root_slot->cached.type == VAL_DICT) {
+            /* This slot is a dictionary */
+            PithDict *dict = root_slot->cached.as.dict;
+            fprintf(stderr, "\n[%zu] %s (dictionary)", i, dict->name ? dict->name : "(unnamed)");
+            if (dict->parent) {
+                fprintf(stderr, " : %s", dict->parent->name ? dict->parent->name : "(unnamed)");
+            }
+            fprintf(stderr, "\n");
 
-            /* Print first few tokens of body */
+            for (size_t s = 0; s < dict->slot_count; s++) {
+                PithSlot *slot = &dict->slots[s];
+                fprintf(stderr, "    %s: [tokens %zu-%zu]",
+                        slot->name, slot->body_start, slot->body_end);
+
+                /* Print first few tokens of body */
+                fprintf(stderr, " = ");
+                size_t max_tokens = 5;
+                for (size_t t = slot->body_start; t < slot->body_end && t < slot->body_start + max_tokens; t++) {
+                    PithToken *tok = &rt->tokens[t];
+                    if (tok->text) {
+                        fprintf(stderr, "%s ", tok->text);
+                    } else {
+                        fprintf(stderr, "<%s> ", token_type_name(tok->type));
+                    }
+                }
+                if (slot->body_end - slot->body_start > max_tokens) {
+                    fprintf(stderr, "...");
+                }
+                fprintf(stderr, "\n");
+            }
+        } else {
+            /* Regular slot */
+            fprintf(stderr, "\n[%zu] %s: [tokens %zu-%zu]", i, root_slot->name, root_slot->body_start, root_slot->body_end);
             fprintf(stderr, " = ");
             size_t max_tokens = 5;
-            for (size_t t = slot->body_start; t < slot->body_end && t < slot->body_start + max_tokens; t++) {
+            for (size_t t = root_slot->body_start; t < root_slot->body_end && t < root_slot->body_start + max_tokens; t++) {
                 PithToken *tok = &rt->tokens[t];
                 if (tok->text) {
                     fprintf(stderr, "%s ", tok->text);
@@ -1524,7 +1628,7 @@ void pith_debug_print_state(PithRuntime *rt) {
                     fprintf(stderr, "<%s> ", token_type_name(tok->type));
                 }
             }
-            if (slot->body_end - slot->body_start > max_tokens) {
+            if (root_slot->body_end - root_slot->body_start > max_tokens) {
                 fprintf(stderr, "...");
             }
             fprintf(stderr, "\n");

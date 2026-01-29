@@ -16,7 +16,6 @@
    ======================================================================== */
 
 #define PITH_STACK_MAX      256
-#define PITH_DICT_MAX       64
 #define PITH_TOKEN_MAX      4096
 #define PITH_ERROR_MAX      256
 
@@ -87,12 +86,9 @@ typedef struct {
     /* Token stream (from parser) */
     PithToken tokens[PITH_TOKEN_MAX];
     size_t token_count;
-    
-    /* Dictionaries */
-    PithDict *dicts[PITH_DICT_MAX];
-    size_t dict_count;
-    
-    /* Root dictionary (built-in words) */
+
+    /* Root dictionary - contains all top-level slots and dictionaries */
+    /* Dictionaries are stored as slots with cached VAL_DICT values */
     PithDict *root;
     
     /* Current execution context */
