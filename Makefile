@@ -90,6 +90,10 @@ run: $(TARGET)
 run-example: $(TARGET)
 	./$(TARGET) examples/hello
 
+# Run tests
+test: $(TARGET)
+	@./test/run-tests.sh
+
 # Format code (requires clang-format)
 format:
 	clang-format -i $(SRC_DIR)/*.c $(INC_DIR)/*.h
@@ -99,4 +103,4 @@ check-deps:
 	@which raylib-config > /dev/null 2>&1 || (echo "raylib not found. Install with: brew install raylib (macOS) or apt install libraylib-dev (Linux)" && exit 1)
 	@echo "Dependencies OK"
 
-.PHONY: all clean install uninstall run run-example format check-deps release debug
+.PHONY: all clean install uninstall run run-example test format check-deps release debug

@@ -1,0 +1,4 @@
+# expect: nil
+main:
+    nil print
+end

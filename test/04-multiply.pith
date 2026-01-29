@@ -1,0 +1,4 @@
+# expect: 42
+main:
+    6 7 multiply print
+end

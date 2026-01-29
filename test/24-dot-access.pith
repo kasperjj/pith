@@ -1,0 +1,8 @@
+# expect: 42
+config:
+    answer: 42
+end
+
+main:
+    config.answer print
+end

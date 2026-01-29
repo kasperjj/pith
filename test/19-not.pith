@@ -1,0 +1,4 @@
+# expect: true
+main:
+    false not print
+end

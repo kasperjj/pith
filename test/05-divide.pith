@@ -1,0 +1,4 @@
+# expect: 42
+main:
+    84 2 divide print
+end

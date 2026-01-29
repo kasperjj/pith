@@ -1,0 +1,5 @@
+# expect: 42
+# expect: 42
+main:
+    42 dup print print
+end

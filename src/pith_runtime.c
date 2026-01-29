@@ -1215,16 +1215,35 @@ void pith_runtime_free(PithRuntime *rt) {
 }
 
 bool pith_runtime_load_project(PithRuntime *rt, const char *path) {
+    /* Check if path is a .pith file (direct file execution) */
+    size_t len = strlen(path);
+    bool is_pith_file = (len > 5 && strcmp(path + len - 5, ".pith") == 0);
+
+    if (is_pith_file && rt->fs.file_exists(path, rt->fs.userdata)) {
+        /* Direct file execution - set project path to containing directory */
+        char *path_copy = pith_strdup(path);
+        char *last_slash = strrchr(path_copy, '/');
+        if (last_slash) {
+            *last_slash = '\0';
+            rt->project_path = path_copy;
+        } else {
+            free(path_copy);
+            rt->project_path = pith_strdup(".");
+        }
+        return pith_runtime_load_file(rt, path);
+    }
+
+    /* Directory-based project loading */
     rt->project_path = pith_strdup(path);
-    
+
     /* Look for pith/runtime.pith */
     char runtime_path[512];
     snprintf(runtime_path, sizeof(runtime_path), "%s/pith/runtime.pith", path);
-    
+
     if (rt->fs.file_exists(runtime_path, rt->fs.userdata)) {
         return pith_runtime_load_file(rt, runtime_path);
     }
-    
+
     /* Create default runtime.pith */
     const char *default_runtime =
         "# Default Pith runtime\n"
@@ -1239,12 +1258,12 @@ bool pith_runtime_load_project(PithRuntime *rt, const char *path) {
         "ui:\n"
         "    app\n"
         "end\n";
-    
+
     /* Ensure directory exists and write default */
     char pith_dir[512];
     snprintf(pith_dir, sizeof(pith_dir), "%s/pith", path);
     rt->fs.write_file(runtime_path, default_runtime, rt->fs.userdata);
-    
+
     return pith_runtime_load_string(rt, default_runtime, "runtime.pith");
 }
 

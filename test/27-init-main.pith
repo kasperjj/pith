@@ -1,0 +1,9 @@
+# expect: init
+# expect: main
+init:
+    "init" print
+end
+
+main:
+    "main" print
+end

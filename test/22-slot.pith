@@ -1,0 +1,8 @@
+# expect: 42
+data:
+    answer: 42
+end
+
+main:
+    data.answer print
+end

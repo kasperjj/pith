@@ -1,0 +1,12 @@
+# expect: 42
+data:
+    value: 42
+
+    get-value:
+        value print
+    end
+end
+
+main:
+    data.get-value
+end

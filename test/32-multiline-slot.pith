@@ -1,0 +1,12 @@
+# expect: 42
+compute:
+    10
+    20
+    add
+    12
+    add
+end
+
+main:
+    compute print
+end

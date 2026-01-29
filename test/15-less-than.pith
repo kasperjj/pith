@@ -1,0 +1,4 @@
+# expect: true
+main:
+    1 2 < print
+end

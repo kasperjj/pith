@@ -1,0 +1,4 @@
+# expect: false
+main:
+    42 43 = print
+end

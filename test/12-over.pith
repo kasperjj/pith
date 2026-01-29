@@ -1,0 +1,6 @@
+# expect: 1
+# expect: 2
+# expect: 1
+main:
+    1 2 over print print print
+end

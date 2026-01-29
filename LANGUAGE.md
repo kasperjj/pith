@@ -394,10 +394,26 @@ uuid        # ( -- str )
 ## CLI Options
 
 ```
-pith [options] [project_path]
+pith [options] [path]
 
 Options:
   -h, --help      Show help message
   -v, --version   Show version information
   -d, --debug     Enable debug output (parsing, execution, rendering)
+```
+
+**Path can be:**
+- A directory containing a `pith/runtime.pith` file (project mode)
+- A `.pith` file directly (single-file mode)
+
+**Examples:**
+```bash
+# Run a project directory
+pith my-project/
+
+# Run a single pith file directly
+pith script.pith
+
+# Run with debug output
+pith -d my-project/
 ```

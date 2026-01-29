@@ -1,0 +1,5 @@
+# expect: 1
+# expect: 2
+main:
+    1 2 swap print print
+end

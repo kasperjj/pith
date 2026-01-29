@@ -1,0 +1,4 @@
+# expect: hello world
+main:
+    "hello world" print
+end

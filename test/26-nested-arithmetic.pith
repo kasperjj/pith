@@ -1,0 +1,4 @@
+# expect: 42
+main:
+    10 2 multiply 20 add 2 add print
+end
