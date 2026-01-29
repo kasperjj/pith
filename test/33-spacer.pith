@@ -1,0 +1,5 @@
+# expect: 3
+# spacer creates a view that fills available space
+main:
+    ["a" text spacer "b" text] length print
+end

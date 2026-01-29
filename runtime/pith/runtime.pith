@@ -17,16 +17,17 @@ end
 # Main application component
 app:
     parent: root
-    
+
     # State
     buffer: "Welcome to Pith!\n\nThis is a minimal, stack-based editor runtime.\n\nEdit this file to change the UI."
     status: "Ready"
-    
+
     # UI definition
     ui:
         [
             header
             editor-area
+            spacer
             status-bar
         ] vstack
     end

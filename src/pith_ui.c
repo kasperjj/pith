@@ -304,6 +304,12 @@ static void measure_view(PithUI *ui, PithView *view, int *out_w, int *out_h) {
             *out_h = max_h;
             break;
         }
+
+        case VIEW_SPACER:
+            /* Spacer has no intrinsic size - it expands to fill */
+            *out_w = 0;
+            *out_h = 0;
+            break;
     }
     
     /* Apply explicit size constraints */
@@ -400,19 +406,39 @@ static void render_view_internal(PithUI *ui, PithView *view,
         case VIEW_VSTACK: {
             int current_y = inner_y;
             int gap = get_gap(view, inherited_style);
-            
+
+            /* Count fill/spacer children and measure fixed children */
+            int fill_count = 0;
+            int fixed_height = 0;
+            for (size_t i = 0; i < view->as.stack.count; i++) {
+                PithView *child = view->as.stack.children[i];
+                if (child->style.fill || child->type == VIEW_SPACER) {
+                    fill_count++;
+                } else {
+                    int cw, ch;
+                    measure_view(ui, child, &cw, &ch);
+                    fixed_height += ch;
+                }
+            }
+            fixed_height += gap * (view->as.stack.count > 0 ? view->as.stack.count - 1 : 0);
+
+            int fill_height = fill_count > 0 ?
+                (inner_h - fixed_height) / fill_count : 0;
+            if (fill_height < 0) fill_height = 0;
+
             for (size_t i = 0; i < view->as.stack.count; i++) {
                 PithView *child = view->as.stack.children[i];
                 int cw, ch;
                 measure_view(ui, child, &cw, &ch);
-                
+
                 /* Use full width for vstack children */
-                int child_w = child->style.fill ? inner_w : cw;
-                
-                render_view_internal(ui, child, inner_x, current_y, 
-                                     child_w, ch, &merged);
-                
-                current_y += ch + gap;
+                int child_w = inner_w;
+                int child_h = (child->style.fill || child->type == VIEW_SPACER) ? fill_height : ch;
+
+                render_view_internal(ui, child, inner_x, current_y,
+                                     child_w, child_h, &merged);
+
+                current_y += child_h + gap;
             }
             break;
         }
@@ -420,13 +446,13 @@ static void render_view_internal(PithUI *ui, PithView *view,
         case VIEW_HSTACK: {
             int current_x = inner_x;
             int gap = get_gap(view, inherited_style);
-            
-            /* Count fill children */
+
+            /* Count fill/spacer children */
             int fill_count = 0;
             int fixed_width = 0;
             for (size_t i = 0; i < view->as.stack.count; i++) {
                 PithView *child = view->as.stack.children[i];
-                if (child->style.fill) {
+                if (child->style.fill || child->type == VIEW_SPACER) {
                     fill_count++;
                 } else {
                     int cw, ch;
@@ -434,25 +460,30 @@ static void render_view_internal(PithUI *ui, PithView *view,
                     fixed_width += cw;
                 }
             }
-            fixed_width += gap * (view->as.stack.count - 1);
-            
-            int fill_width = fill_count > 0 ? 
+            fixed_width += gap * (view->as.stack.count > 0 ? view->as.stack.count - 1 : 0);
+
+            int fill_width = fill_count > 0 ?
                 (inner_w - fixed_width) / fill_count : 0;
-            
+            if (fill_width < 0) fill_width = 0;
+
             for (size_t i = 0; i < view->as.stack.count; i++) {
                 PithView *child = view->as.stack.children[i];
                 int cw, ch;
                 measure_view(ui, child, &cw, &ch);
-                
-                int child_w = child->style.fill ? fill_width : cw;
-                
-                render_view_internal(ui, child, current_x, inner_y, 
+
+                int child_w = (child->style.fill || child->type == VIEW_SPACER) ? fill_width : cw;
+
+                render_view_internal(ui, child, current_x, inner_y,
                                      child_w, inner_h, &merged);
-                
+
                 current_x += child_w + gap;
             }
             break;
         }
+
+        case VIEW_SPACER:
+            /* Spacer is invisible - just takes up space */
+            break;
     }
 }
 

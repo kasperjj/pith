@@ -337,6 +337,7 @@ words               # ( str -- array )
 text        # ( str -- view )
 vstack      # ( array -- view )    # array of views
 hstack      # ( array -- view )    # array of views
+spacer      # ( -- view )          # expands to fill available space
 ```
 
 **Not yet implemented:**
@@ -346,9 +347,35 @@ button      # ( label on-click -- view )
 texture     # ( path -- view )
 width       # ( view n -- view )
 height      # ( view n -- view )
-fill        # ( view -- view )
 scroll      # ( view -- view )
 ```
+
+### Spacer ✓
+
+The `spacer` element expands to fill available space in a stack. Use it to push elements apart:
+
+```
+# Status bar at bottom of screen
+ui:
+    [
+        header
+        content
+        spacer          # pushes status-bar to bottom
+        status-bar
+    ] vstack
+end
+
+# Elements at left and right edges
+ui:
+    [
+        "Left" text
+        spacer          # fills middle space
+        "Right" text
+    ] hstack
+end
+```
+
+Multiple spacers share the available space equally.
 
 ## Style Slots (Cascading) ✓
 

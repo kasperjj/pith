@@ -425,6 +425,9 @@ void pith_view_free(PithView *view) {
             }
             free(view->as.stack.children);
             break;
+        case VIEW_SPACER:
+            /* Spacer has no data to free */
+            break;
     }
     
     if (view->style.has_border) {
@@ -833,7 +836,15 @@ static bool builtin_hstack(PithRuntime *rt) {
     free(children);
     free(arr->items);
     free(arr);
-    
+
+    return pith_push(rt, PITH_VIEW(view));
+}
+
+static bool builtin_spacer(PithRuntime *rt) {
+    PithView *view = malloc(sizeof(PithView));
+    memset(view, 0, sizeof(PithView));
+    view->type = VIEW_SPACER;
+    view->style.fill = true;
     return pith_push(rt, PITH_VIEW(view));
 }
 
@@ -918,6 +929,7 @@ static BuiltinEntry builtins[] = {
     {"text", builtin_text},
     {"vstack", builtin_vstack},
     {"hstack", builtin_hstack},
+    {"spacer", builtin_spacer},
 
     /* Functional */
     {"map", builtin_map},
@@ -1709,6 +1721,7 @@ static const char* view_type_name(PithViewType t) {
         case VIEW_TEXTURE: return "TEXTURE";
         case VIEW_VSTACK: return "VSTACK";
         case VIEW_HSTACK: return "HSTACK";
+        case VIEW_SPACER: return "SPACER";
         default: return "UNKNOWN";
     }
 }

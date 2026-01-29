@@ -89,6 +89,7 @@ typedef enum {
     VIEW_TEXTURE,
     VIEW_VSTACK,
     VIEW_HSTACK,
+    VIEW_SPACER,
 } PithViewType;
 
 /* Style properties - all optional (use parent if not set) */
