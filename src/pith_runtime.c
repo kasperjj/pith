@@ -1485,28 +1485,53 @@ bool pith_runtime_load_string(PithRuntime *rt, const char *source, const char *n
     /* Set current dictionary to the file-level root */
     rt->current_dict = rt->root;
 
-    /* Execute the root dictionary's 'ui' slot if it exists */
-    PithSlot *ui_slot = pith_dict_lookup(rt->root, "ui");
-    if (ui_slot) {
-        if (g_debug) {
-            fprintf(stderr, "[DEBUG] Executing root ui slot: tokens %zu-%zu\n",
-                    ui_slot->body_start, ui_slot->body_end);
-        }
-        pith_execute_slot(rt, ui_slot);
+    return true;
+}
 
-        /* If a view is on the stack, use it as the root view */
-        if (pith_stack_has(rt, 1)) {
-            PithValue v = pith_peek(rt);
-            if (PITH_IS_VIEW(v)) {
-                rt->current_view = pith_pop(rt).as.view;
-                if (g_debug) {
-                    fprintf(stderr, "[DEBUG] Root view set from ui slot\n");
-                }
+/* Execute a named slot in the root dictionary if it exists */
+bool pith_runtime_run_slot(PithRuntime *rt, const char *name) {
+    PithSlot *slot = pith_dict_lookup(rt->root, name);
+    if (!slot) {
+        return false; /* Slot doesn't exist - not an error */
+    }
+
+    if (g_debug) {
+        fprintf(stderr, "[DEBUG] Executing '%s' slot: tokens %zu-%zu\n",
+                name, slot->body_start, slot->body_end);
+    }
+
+    return pith_execute_slot(rt, slot);
+}
+
+/* Execute the ui slot and set the current view */
+bool pith_runtime_mount_ui(PithRuntime *rt) {
+    PithSlot *ui_slot = pith_dict_lookup(rt->root, "ui");
+    if (!ui_slot) {
+        return false; /* No ui slot */
+    }
+
+    if (g_debug) {
+        fprintf(stderr, "[DEBUG] Executing 'ui' slot: tokens %zu-%zu\n",
+                ui_slot->body_start, ui_slot->body_end);
+    }
+
+    if (!pith_execute_slot(rt, ui_slot)) {
+        return false;
+    }
+
+    /* If a view is on the stack, use it as the root view */
+    if (pith_stack_has(rt, 1)) {
+        PithValue v = pith_peek(rt);
+        if (PITH_IS_VIEW(v)) {
+            rt->current_view = pith_pop(rt).as.view;
+            if (g_debug) {
+                fprintf(stderr, "[DEBUG] Root view set from ui slot\n");
             }
+            return true;
         }
     }
 
-    return true;
+    return false;
 }
 
 void pith_runtime_handle_event(PithRuntime *rt, PithEvent event) {

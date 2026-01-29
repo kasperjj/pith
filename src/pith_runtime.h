@@ -134,6 +134,12 @@ void pith_runtime_handle_event(PithRuntime *rt, PithEvent event);
 /* Get the current view tree to render */
 PithView* pith_runtime_get_view(PithRuntime *rt);
 
+/* Execute a named slot in the root dictionary (returns false if slot doesn't exist) */
+bool pith_runtime_run_slot(PithRuntime *rt, const char *name);
+
+/* Execute the ui slot and mount the view (returns false if no ui slot or no view produced) */
+bool pith_runtime_mount_ui(PithRuntime *rt);
+
 /* ========================================================================
    STACK OPERATIONS
    ======================================================================== */

@@ -210,80 +210,91 @@ int main(int argc, char *argv[]) {
         pith_debug_print_state(rt);
     }
 
-    /* Check if there's a UI to display */
-    PithView *view = pith_runtime_get_view(rt);
-    if (!view) {
-        /* No ui slot defined - just exit cleanly */
-        if (g_debug) {
-            fprintf(stderr, "[DEBUG] No ui slot defined, exiting without opening window\n");
-        }
-        pith_runtime_free(rt);
-        return 0;
-    }
-
-    /* Create UI */
-    PithUIConfig ui_config = pith_ui_default_config();
-
-    /* Build window title */
-    char title[256];
-    snprintf(title, sizeof(title), "Pith - %s", project_path);
-    ui_config.title = title;
-
-    PithUI *ui = pith_ui_new(ui_config);
-    if (!ui) {
-        fprintf(stderr, "Failed to create UI\n");
+    /* Run init slot if present */
+    pith_runtime_run_slot(rt, "init");
+    if (rt->has_error) {
+        fprintf(stderr, "Error in init: %s\n", pith_get_error(rt));
         pith_runtime_free(rt);
         return 1;
     }
 
-    /* Main loop */
-    while (!pith_ui_should_close(ui)) {
-        /* Begin frame */
-        pith_ui_begin_frame(ui);
-        
-        /* Poll and handle events */
-        PithEvent event;
-        while ((event = pith_ui_poll_event(ui)).type != EVENT_NONE) {
-            pith_runtime_handle_event(rt, event);
+    /* Mount UI if present */
+    bool has_ui = pith_runtime_mount_ui(rt);
+    PithView *view = has_ui ? pith_runtime_get_view(rt) : NULL;
+
+    if (view) {
+        /* Create UI window */
+        PithUIConfig ui_config = pith_ui_default_config();
+
+        /* Build window title */
+        char title[256];
+        snprintf(title, sizeof(title), "Pith - %s", project_path);
+        ui_config.title = title;
+
+        PithUI *ui = pith_ui_new(ui_config);
+        if (!ui) {
+            fprintf(stderr, "Failed to create UI\n");
+            pith_runtime_free(rt);
+            return 1;
         }
-        
-        /* Get view tree from runtime and render */
-        PithView *view = pith_runtime_get_view(rt);
-        if (g_debug) {
-            static bool first_frame = true;
-            if (first_frame) {
-                fprintf(stderr, "[DEBUG] Getting view from runtime...\n");
-                if (view) {
-                    pith_debug_print_view(view, 0);
-                } else {
-                    fprintf(stderr, "[DEBUG] No view returned!\n");
-                    const char *err = pith_get_error(rt);
-                    if (err) fprintf(stderr, "[DEBUG] Error: %s\n", err);
-                }
-                first_frame = false;
+
+        /* Main loop */
+        while (!pith_ui_should_close(ui)) {
+            /* Begin frame */
+            pith_ui_begin_frame(ui);
+
+            /* Poll and handle events */
+            PithEvent event;
+            while ((event = pith_ui_poll_event(ui)).type != EVENT_NONE) {
+                pith_runtime_handle_event(rt, event);
             }
+
+            /* Get view tree from runtime and render */
+            view = pith_runtime_get_view(rt);
+            if (g_debug) {
+                static bool first_frame = true;
+                if (first_frame) {
+                    fprintf(stderr, "[DEBUG] View hierarchy:\n");
+                    if (view) {
+                        pith_debug_print_view(view, 0);
+                    } else {
+                        fprintf(stderr, "[DEBUG] No view!\n");
+                    }
+                    first_frame = false;
+                }
+            }
+            if (view) {
+                pith_ui_render(ui, view);
+            }
+
+            /* End frame */
+            pith_ui_end_frame(ui);
         }
-        if (view) {
-            pith_ui_render(ui, view);
-        }
-        
-        /* Show any errors */
-        const char *error = pith_get_error(rt);
-        if (error) {
-            /* Draw error at bottom of screen */
-            int width, height;
-            pith_ui_get_size(ui, &width, &height);
-            /* For now just print to console */
-            /* TODO: render in UI */
-        }
-        
-        /* End frame */
-        pith_ui_end_frame(ui);
+
+        /* Cleanup UI */
+        pith_ui_free(ui);
+    } else if (g_debug) {
+        fprintf(stderr, "[DEBUG] No ui slot, skipping window\n");
     }
-    
+
+    /* Run main slot if present */
+    pith_runtime_run_slot(rt, "main");
+    if (rt->has_error) {
+        fprintf(stderr, "Error in main: %s\n", pith_get_error(rt));
+        pith_runtime_free(rt);
+        return 1;
+    }
+
+    /* Run exit slot if present */
+    pith_runtime_run_slot(rt, "exit");
+    if (rt->has_error) {
+        fprintf(stderr, "Error in exit: %s\n", pith_get_error(rt));
+        pith_runtime_free(rt);
+        return 1;
+    }
+
     /* Cleanup */
-    pith_ui_free(ui);
     pith_runtime_free(rt);
-    
+
     return 0;
 }
