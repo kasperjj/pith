@@ -1,0 +1,7 @@
+# expect: helloworld
+# expect: foobar
+# concat: ( a b -- joined )
+main:
+    "hello" "world" concat print
+    "foo" "bar" concat print
+end

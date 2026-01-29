@@ -1,0 +1,10 @@
+# expect: 3
+# expect: a
+# expect: b
+# expect: c
+# split: ( str delim -- array )
+main:
+    "a,b,c" "," split
+    dup length print
+    do print end map drop
+end

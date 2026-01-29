@@ -1,0 +1,7 @@
+# expect: hello universe
+# expect: hella warld
+# replace: ( str old new -- str )
+main:
+    "hello world" "world" "universe" replace print
+    "hello world" "o" "a" replace print
+end

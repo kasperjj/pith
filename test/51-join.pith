@@ -1,0 +1,7 @@
+# expect: a-b-c
+# expect: hello world
+# join: ( array delim -- str )
+main:
+    ["a", "b", "c"] "-" join print
+    ["hello", "world"] " " join print
+end

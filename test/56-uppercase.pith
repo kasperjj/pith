@@ -1,0 +1,7 @@
+# expect: HELLO WORLD
+# expect: ABC123
+# uppercase: ( str -- str )
+main:
+    "hello world" uppercase print
+    "abc123" uppercase print
+end

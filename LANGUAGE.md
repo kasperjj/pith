@@ -238,15 +238,14 @@ or          # ( a b -- bool )
 not         # ( a -- bool )
 ```
 
-## Strings ○
+## Strings ✓
 
-**Not yet implemented:**
 ```
+length      # ( str -- n )
 concat      # ( a b -- joined )
 split       # ( str delim -- array )
 join        # ( array delim -- str )
 trim        # ( str -- str )
-length      # ( str -- n )
 substring   # ( str start end -- str )
 contains    # ( str search -- bool )
 replace     # ( str old new -- str )

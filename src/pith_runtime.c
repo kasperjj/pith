@@ -824,6 +824,279 @@ static bool builtin_length(PithRuntime *rt) {
     return false;
 }
 
+/* String Operations */
+static bool builtin_concat(PithRuntime *rt) {
+    if (!pith_stack_has(rt, 2)) return false;
+    PithValue b = pith_pop(rt);
+    PithValue a = pith_pop(rt);
+    if (!PITH_IS_STRING(a) || !PITH_IS_STRING(b)) {
+        pith_error(rt, "concat requires two strings");
+        pith_value_free(a);
+        pith_value_free(b);
+        return false;
+    }
+    size_t len_a = strlen(a.as.string);
+    size_t len_b = strlen(b.as.string);
+    char *result = malloc(len_a + len_b + 1);
+    memcpy(result, a.as.string, len_a);
+    memcpy(result + len_a, b.as.string, len_b + 1);
+    pith_value_free(a);
+    pith_value_free(b);
+    return pith_push(rt, PITH_STRING(result));
+}
+
+static bool builtin_split(PithRuntime *rt) {
+    if (!pith_stack_has(rt, 2)) return false;
+    PithValue delim = pith_pop(rt);
+    PithValue str = pith_pop(rt);
+    if (!PITH_IS_STRING(str) || !PITH_IS_STRING(delim)) {
+        pith_error(rt, "split requires string and delimiter");
+        pith_value_free(str);
+        pith_value_free(delim);
+        return false;
+    }
+    PithArray *array = pith_array_new();
+    char *copy = pith_strdup(str.as.string);
+    char *token = copy;
+    char *next;
+    size_t delim_len = strlen(delim.as.string);
+
+    if (delim_len == 0) {
+        // Split into individual characters
+        for (size_t i = 0; copy[i]; i++) {
+            char *ch = malloc(2);
+            ch[0] = copy[i];
+            ch[1] = '\0';
+            pith_array_push(array, PITH_STRING(ch));
+        }
+    } else {
+        while ((next = strstr(token, delim.as.string)) != NULL) {
+            *next = '\0';
+            pith_array_push(array, PITH_STRING(pith_strdup(token)));
+            token = next + delim_len;
+        }
+        pith_array_push(array, PITH_STRING(pith_strdup(token)));
+    }
+
+    free(copy);
+    pith_value_free(str);
+    pith_value_free(delim);
+    return pith_push(rt, PITH_ARRAY(array));
+}
+
+static bool builtin_join(PithRuntime *rt) {
+    if (!pith_stack_has(rt, 2)) return false;
+    PithValue delim = pith_pop(rt);
+    PithValue arr = pith_pop(rt);
+    if (!PITH_IS_ARRAY(arr) || !PITH_IS_STRING(delim)) {
+        pith_error(rt, "join requires array and delimiter");
+        pith_value_free(arr);
+        pith_value_free(delim);
+        return false;
+    }
+
+    // Calculate total length
+    size_t total = 0;
+    size_t delim_len = strlen(delim.as.string);
+    for (size_t i = 0; i < arr.as.array->length; i++) {
+        if (PITH_IS_STRING(arr.as.array->items[i])) {
+            total += strlen(arr.as.array->items[i].as.string);
+        }
+        if (i > 0) total += delim_len;
+    }
+
+    char *result = malloc(total + 1);
+    result[0] = '\0';
+    size_t pos = 0;
+
+    for (size_t i = 0; i < arr.as.array->length; i++) {
+        if (i > 0) {
+            memcpy(result + pos, delim.as.string, delim_len);
+            pos += delim_len;
+        }
+        if (PITH_IS_STRING(arr.as.array->items[i])) {
+            size_t len = strlen(arr.as.array->items[i].as.string);
+            memcpy(result + pos, arr.as.array->items[i].as.string, len);
+            pos += len;
+        }
+    }
+    result[pos] = '\0';
+
+    pith_value_free(arr);
+    pith_value_free(delim);
+    return pith_push(rt, PITH_STRING(result));
+}
+
+static bool builtin_trim(PithRuntime *rt) {
+    if (!pith_stack_has(rt, 1)) return false;
+    PithValue str = pith_pop(rt);
+    if (!PITH_IS_STRING(str)) {
+        pith_error(rt, "trim requires a string");
+        pith_value_free(str);
+        return false;
+    }
+
+    const char *start = str.as.string;
+    while (*start && isspace((unsigned char)*start)) start++;
+
+    const char *end = str.as.string + strlen(str.as.string) - 1;
+    while (end > start && isspace((unsigned char)*end)) end--;
+
+    size_t len = end - start + 1;
+    char *result = malloc(len + 1);
+    memcpy(result, start, len);
+    result[len] = '\0';
+
+    pith_value_free(str);
+    return pith_push(rt, PITH_STRING(result));
+}
+
+static bool builtin_substring(PithRuntime *rt) {
+    if (!pith_stack_has(rt, 3)) return false;
+    PithValue end_val = pith_pop(rt);
+    PithValue start_val = pith_pop(rt);
+    PithValue str = pith_pop(rt);
+
+    if (!PITH_IS_STRING(str) || !PITH_IS_NUMBER(start_val) || !PITH_IS_NUMBER(end_val)) {
+        pith_error(rt, "substring requires string, start, end");
+        pith_value_free(str);
+        pith_value_free(start_val);
+        pith_value_free(end_val);
+        return false;
+    }
+
+    size_t len = strlen(str.as.string);
+    int start = (int)start_val.as.number;
+    int end = (int)end_val.as.number;
+
+    // Handle negative indices
+    if (start < 0) start = 0;
+    if (end < 0) end = 0;
+    if ((size_t)start > len) start = len;
+    if ((size_t)end > len) end = len;
+    if (start > end) start = end;
+
+    size_t sub_len = end - start;
+    char *result = malloc(sub_len + 1);
+    memcpy(result, str.as.string + start, sub_len);
+    result[sub_len] = '\0';
+
+    pith_value_free(str);
+    return pith_push(rt, PITH_STRING(result));
+}
+
+static bool builtin_contains(PithRuntime *rt) {
+    if (!pith_stack_has(rt, 2)) return false;
+    PithValue search = pith_pop(rt);
+    PithValue str = pith_pop(rt);
+
+    if (!PITH_IS_STRING(str) || !PITH_IS_STRING(search)) {
+        pith_error(rt, "contains requires two strings");
+        pith_value_free(str);
+        pith_value_free(search);
+        return false;
+    }
+
+    bool found = strstr(str.as.string, search.as.string) != NULL;
+    pith_value_free(str);
+    pith_value_free(search);
+    return pith_push(rt, PITH_BOOL(found));
+}
+
+static bool builtin_replace(PithRuntime *rt) {
+    if (!pith_stack_has(rt, 3)) return false;
+    PithValue new_str = pith_pop(rt);
+    PithValue old_str = pith_pop(rt);
+    PithValue str = pith_pop(rt);
+
+    if (!PITH_IS_STRING(str) || !PITH_IS_STRING(old_str) || !PITH_IS_STRING(new_str)) {
+        pith_error(rt, "replace requires three strings");
+        pith_value_free(str);
+        pith_value_free(old_str);
+        pith_value_free(new_str);
+        return false;
+    }
+
+    size_t old_len = strlen(old_str.as.string);
+    size_t new_len = strlen(new_str.as.string);
+
+    if (old_len == 0) {
+        // Can't replace empty string
+        char *result = pith_strdup(str.as.string);
+        pith_value_free(str);
+        pith_value_free(old_str);
+        pith_value_free(new_str);
+        return pith_push(rt, PITH_STRING(result));
+    }
+
+    // Count occurrences
+    size_t count = 0;
+    const char *p = str.as.string;
+    while ((p = strstr(p, old_str.as.string)) != NULL) {
+        count++;
+        p += old_len;
+    }
+
+    // Allocate result
+    size_t result_len = strlen(str.as.string) + count * (new_len - old_len);
+    char *result = malloc(result_len + 1);
+
+    // Build result
+    char *dest = result;
+    p = str.as.string;
+    const char *found;
+    while ((found = strstr(p, old_str.as.string)) != NULL) {
+        size_t prefix_len = found - p;
+        memcpy(dest, p, prefix_len);
+        dest += prefix_len;
+        memcpy(dest, new_str.as.string, new_len);
+        dest += new_len;
+        p = found + old_len;
+    }
+    strcpy(dest, p);
+
+    pith_value_free(str);
+    pith_value_free(old_str);
+    pith_value_free(new_str);
+    return pith_push(rt, PITH_STRING(result));
+}
+
+static bool builtin_uppercase(PithRuntime *rt) {
+    if (!pith_stack_has(rt, 1)) return false;
+    PithValue str = pith_pop(rt);
+    if (!PITH_IS_STRING(str)) {
+        pith_error(rt, "uppercase requires a string");
+        pith_value_free(str);
+        return false;
+    }
+
+    char *result = pith_strdup(str.as.string);
+    for (char *p = result; *p; p++) {
+        *p = toupper((unsigned char)*p);
+    }
+
+    pith_value_free(str);
+    return pith_push(rt, PITH_STRING(result));
+}
+
+static bool builtin_lowercase(PithRuntime *rt) {
+    if (!pith_stack_has(rt, 1)) return false;
+    PithValue str = pith_pop(rt);
+    if (!PITH_IS_STRING(str)) {
+        pith_error(rt, "lowercase requires a string");
+        pith_value_free(str);
+        return false;
+    }
+
+    char *result = pith_strdup(str.as.string);
+    for (char *p = result; *p; p++) {
+        *p = tolower((unsigned char)*p);
+    }
+
+    pith_value_free(str);
+    return pith_push(rt, PITH_STRING(result));
+}
+
 /* Printing */
 static bool builtin_print(PithRuntime *rt) {
     if (!pith_stack_has(rt, 1)) return false;
@@ -986,7 +1259,16 @@ static BuiltinEntry builtins[] = {
     
     /* Strings/Arrays */
     {"length", builtin_length},
-    
+    {"concat", builtin_concat},
+    {"split", builtin_split},
+    {"join", builtin_join},
+    {"trim", builtin_trim},
+    {"substring", builtin_substring},
+    {"contains", builtin_contains},
+    {"replace", builtin_replace},
+    {"uppercase", builtin_uppercase},
+    {"lowercase", builtin_lowercase},
+
     /* Debug */
     {"print", builtin_print},
     

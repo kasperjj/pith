@@ -1,0 +1,9 @@
+# expect: true
+# expect: false
+# expect: true
+# contains: ( str search -- bool )
+main:
+    "hello world" "world" contains print
+    "hello world" "foo" contains print
+    "abcdef" "" contains print
+end

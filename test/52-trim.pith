@@ -1,0 +1,7 @@
+# expect: hello
+# expect: world
+# trim: ( str -- str )
+main:
+    "  hello  " trim print
+    "	world	" trim print
+end

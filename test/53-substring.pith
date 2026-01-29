@@ -1,0 +1,9 @@
+# expect: ell
+# expect: hello
+# expect: world
+# substring: ( str start end -- str )
+main:
+    "hello" 1 4 substring print
+    "hello world" 0 5 substring print
+    "hello world" 6 11 substring print
+end
