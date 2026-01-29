@@ -37,6 +37,27 @@ typedef struct PithView PithView;
 typedef struct PithDict PithDict;
 typedef struct PithSlot PithSlot;
 
+/* Anonymous block - stores word indices to execute */
+struct PithBlock {
+    size_t start;   /* Start index in token stream */
+    size_t end;     /* End index in token stream */
+};
+
+/* The universal value type - defined early so it can be embedded in other structs */
+struct PithValue {
+    PithValueType type;
+    union {
+        bool boolean;
+        double number;
+        char *string;
+        PithArray *array;
+        PithMap *map;
+        PithBlock *block;
+        PithView *view;
+        PithDict *dict;
+    } as;
+};
+
 /* Dynamic array of values */
 struct PithArray {
     PithValue *items;
@@ -55,27 +76,6 @@ struct PithMap {
     PithMapEntry *entries;
     size_t length;
     size_t capacity;
-};
-
-/* Anonymous block - stores word indices to execute */
-struct PithBlock {
-    size_t start;   /* Start index in token stream */
-    size_t end;     /* End index in token stream */
-};
-
-/* The universal value type */
-struct PithValue {
-    PithValueType type;
-    union {
-        bool boolean;
-        double number;
-        char *string;
-        PithArray *array;
-        PithMap *map;
-        PithBlock *block;
-        PithView *view;
-        PithDict *dict;
-    } as;
 };
 
 /* ========================================================================

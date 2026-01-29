@@ -458,7 +458,7 @@ static char lexer_advance(Lexer *lex) {
 static void lexer_skip_whitespace(Lexer *lex) {
     while (1) {
         char c = lexer_peek(lex);
-        if (c == ' ' || c == '\t' || c == '\r' || c == '\n') {
+        if (c == ' ' || c == '\t' || c == '\r' || c == '\n' || c == ',') {
             lexer_advance(lex);
         } else if (c == '#') {
             /* Skip comment until end of line */
