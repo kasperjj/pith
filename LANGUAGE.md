@@ -87,6 +87,55 @@ ui:
 end
 ```
 
+### Application Lifecycle ✓
+
+Pith applications have four optional lifecycle slots that run in order:
+
+```
+init:
+    # Runs first - setup, load data, initialize state
+    "Starting up..." print
+end
+
+ui:
+    # Runs second - mounts the UI (opens window if view is produced)
+    app
+end
+
+main:
+    # Runs third - main logic, runs after UI closes (or immediately if no UI)
+    "Processing..." print
+end
+
+exit:
+    # Runs last - cleanup before quitting
+    "Goodbye!" print
+end
+```
+
+**Execution order:**
+1. `init:` - Initialization (before UI)
+2. `ui:` - Mount UI view (if present, opens window and runs event loop)
+3. `main:` - Main logic (after UI closes, or immediately if no `ui:`)
+4. `exit:` - Cleanup (always runs last)
+
+All lifecycle slots are optional. For non-UI applications, omit the `ui:` slot:
+
+```
+# A simple CLI program
+init:
+    "Loading data..." print
+end
+
+main:
+    1 2 add print
+end
+
+exit:
+    "Done!" print
+end
+```
+
 ### Getting Values ✓
 
 ```
