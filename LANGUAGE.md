@@ -199,10 +199,6 @@ dup         # ( a -- a a )
 drop        # ( a -- )
 swap        # ( a b -- b a )
 over        # ( a b -- a b a )
-```
-
-**Not yet implemented:**
-```
 rot         # ( a b c -- b c a )
 ```
 
@@ -213,10 +209,6 @@ add         # ( a b -- sum )
 subtract    # ( a b -- difference )
 multiply    # ( a b -- product )
 divide      # ( a b -- quotient )
-```
-
-**Not yet implemented:**
-```
 mod         # ( a b -- remainder )
 abs         # ( a -- absolute )
 min         # ( a b -- smaller )

@@ -1,0 +1,9 @@
+# expect: 7
+# expect: 10
+# expect: 7
+# max: ( a b -- larger )
+main:
+    3 7 max print
+    -5 10 max print
+    7 7 max print
+end

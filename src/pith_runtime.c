@@ -8,6 +8,7 @@
 #include <string.h>
 #include <stdarg.h>
 #include <ctype.h>
+#include <math.h>
 
 /* ========================================================================
    MEMORY HELPERS
@@ -634,6 +635,18 @@ static bool builtin_over(PithRuntime *rt) {
     return pith_push(rt, copy);
 }
 
+static bool builtin_rot(PithRuntime *rt) {
+    /* ( a b c -- b c a ) - rotate top three elements */
+    if (!pith_stack_has(rt, 3)) return false;
+    PithValue c = rt->stack[rt->stack_top - 1];
+    PithValue b = rt->stack[rt->stack_top - 2];
+    PithValue a = rt->stack[rt->stack_top - 3];
+    rt->stack[rt->stack_top - 3] = b;
+    rt->stack[rt->stack_top - 2] = c;
+    rt->stack[rt->stack_top - 1] = a;
+    return true;
+}
+
 /* Arithmetic */
 static bool builtin_add(PithRuntime *rt) {
     if (!pith_stack_has(rt, 2)) return false;
@@ -690,6 +703,53 @@ static bool builtin_divide(PithRuntime *rt) {
         return false;
     }
     return pith_push(rt, PITH_NUMBER(a.as.number / b.as.number));
+}
+
+static bool builtin_mod(PithRuntime *rt) {
+    if (!pith_stack_has(rt, 2)) return false;
+    PithValue b = pith_pop(rt);
+    PithValue a = pith_pop(rt);
+    if (!PITH_IS_NUMBER(a) || !PITH_IS_NUMBER(b)) {
+        pith_error(rt, "mod requires numbers");
+        return false;
+    }
+    if (b.as.number == 0) {
+        pith_error(rt, "modulo by zero");
+        return false;
+    }
+    return pith_push(rt, PITH_NUMBER(fmod(a.as.number, b.as.number)));
+}
+
+static bool builtin_abs(PithRuntime *rt) {
+    if (!pith_stack_has(rt, 1)) return false;
+    PithValue a = pith_pop(rt);
+    if (!PITH_IS_NUMBER(a)) {
+        pith_error(rt, "abs requires number");
+        return false;
+    }
+    return pith_push(rt, PITH_NUMBER(fabs(a.as.number)));
+}
+
+static bool builtin_min(PithRuntime *rt) {
+    if (!pith_stack_has(rt, 2)) return false;
+    PithValue b = pith_pop(rt);
+    PithValue a = pith_pop(rt);
+    if (!PITH_IS_NUMBER(a) || !PITH_IS_NUMBER(b)) {
+        pith_error(rt, "min requires numbers");
+        return false;
+    }
+    return pith_push(rt, PITH_NUMBER(a.as.number < b.as.number ? a.as.number : b.as.number));
+}
+
+static bool builtin_max(PithRuntime *rt) {
+    if (!pith_stack_has(rt, 2)) return false;
+    PithValue b = pith_pop(rt);
+    PithValue a = pith_pop(rt);
+    if (!PITH_IS_NUMBER(a) || !PITH_IS_NUMBER(b)) {
+        pith_error(rt, "max requires numbers");
+        return false;
+    }
+    return pith_push(rt, PITH_NUMBER(a.as.number > b.as.number ? a.as.number : b.as.number));
 }
 
 /* Comparison */
@@ -902,13 +962,18 @@ static BuiltinEntry builtins[] = {
     {"drop", builtin_drop},
     {"swap", builtin_swap},
     {"over", builtin_over},
-    
+    {"rot", builtin_rot},
+
     /* Arithmetic */
     {"add", builtin_add},
     {"subtract", builtin_subtract},
     {"multiply", builtin_multiply},
     {"divide", builtin_divide},
-    
+    {"mod", builtin_mod},
+    {"abs", builtin_abs},
+    {"min", builtin_min},
+    {"max", builtin_max},
+
     /* Comparison */
     {"=", builtin_equal},
     {"<", builtin_less},

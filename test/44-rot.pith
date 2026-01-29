@@ -1,0 +1,7 @@
+# expect: 1
+# expect: 3
+# expect: 2
+# rot: ( a b c -- b c a ) rotates top three elements
+main:
+    1 2 3 rot print print print
+end

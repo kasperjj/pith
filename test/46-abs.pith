@@ -1,0 +1,9 @@
+# expect: 5
+# expect: 5
+# expect: 0
+# abs: ( a -- absolute )
+main:
+    -5 abs print
+    5 abs print
+    0 abs print
+end

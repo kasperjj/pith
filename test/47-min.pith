@@ -1,0 +1,9 @@
+# expect: 3
+# expect: -5
+# expect: 7
+# min: ( a b -- smaller )
+main:
+    3 7 min print
+    -5 10 min print
+    7 7 min print
+end
