@@ -1,0 +1,8 @@
+# expect: greater
+main:
+    5 3 > if
+        "greater" print
+    else
+        "not greater" print
+    end
+end

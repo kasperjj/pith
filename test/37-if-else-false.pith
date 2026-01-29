@@ -1,0 +1,8 @@
+# expect: no
+main:
+    false if
+        "yes" print
+    else
+        "no" print
+    end
+end

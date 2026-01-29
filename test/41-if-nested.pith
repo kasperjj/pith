@@ -1,0 +1,12 @@
+# expect: both true
+main:
+    true if
+        true if
+            "both true" print
+        else
+            "inner false" print
+        end
+    else
+        "outer false" print
+    end
+end

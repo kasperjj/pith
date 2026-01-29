@@ -1084,15 +1084,72 @@ bool pith_execute_slot(PithRuntime *rt, PithSlot *slot) {
                 break;
                 
             case TOK_IF: {
-                /* Simple if implementation - find matching end/else */
-                /* This is simplified - a real implementation would be more robust */
+                /* If-else implementation */
+                /* Syntax: condition if ... end  OR  condition if ... else ... end */
                 if (!pith_stack_has(rt, 1)) {
                     pith_error(rt, "if requires condition on stack");
                     return false;
                 }
                 PithValue cond = pith_pop(rt);
-                bool take_branch = cond.as.boolean;
-                /* TODO: implement proper control flow */
+                bool take_branch = false;
+                if (cond.type == VAL_BOOL) {
+                    take_branch = cond.as.boolean;
+                } else if (cond.type == VAL_NUMBER) {
+                    take_branch = cond.as.number != 0;
+                } else if (cond.type == VAL_NIL) {
+                    take_branch = false;
+                } else {
+                    /* Non-nil, non-false values are truthy */
+                    take_branch = true;
+                }
+
+                /* Find matching else/end, tracking nesting depth */
+                size_t if_body_start = i + 1;
+                size_t else_pos = 0;  /* 0 means no else */
+                size_t end_pos = if_body_start;
+                int depth = 1;
+
+                for (size_t j = if_body_start; j < slot->body_end; j++) {
+                    PithTokenType t = rt->tokens[j].type;
+                    if (t == TOK_IF || t == TOK_DO) {
+                        depth++;
+                    } else if (t == TOK_ELSE && depth == 1) {
+                        else_pos = j;
+                    } else if (t == TOK_END) {
+                        depth--;
+                        if (depth == 0) {
+                            end_pos = j;
+                            break;
+                        }
+                    }
+                }
+
+                if (take_branch) {
+                    /* Execute the 'if' body (up to else or end) */
+                    size_t body_end = else_pos > 0 ? else_pos : end_pos;
+                    PithSlot if_slot = {
+                        .name = NULL,
+                        .body_start = if_body_start,
+                        .body_end = body_end,
+                        .is_cached = false
+                    };
+                    if (!pith_execute_slot(rt, &if_slot)) {
+                        return false;
+                    }
+                } else if (else_pos > 0) {
+                    /* Execute the 'else' body */
+                    PithSlot else_slot = {
+                        .name = NULL,
+                        .body_start = else_pos + 1,
+                        .body_end = end_pos,
+                        .is_cached = false
+                    };
+                    if (!pith_execute_slot(rt, &else_slot)) {
+                        return false;
+                    }
+                }
+                /* Skip to end */
+                i = end_pos;
                 break;
             }
                 

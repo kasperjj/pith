@@ -1,0 +1,7 @@
+# expect: done
+main:
+    false if
+        "yes" print
+    end
+    "done" print
+end

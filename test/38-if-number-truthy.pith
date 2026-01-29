@@ -1,0 +1,8 @@
+# expect: truthy
+main:
+    42 if
+        "truthy" print
+    else
+        "falsy" print
+    end
+end

@@ -151,19 +151,36 @@ settings.theme          # gets 'theme' slot from 'settings' dictionary
 "dark" config.theme set
 ```
 
-### Control Flow ○
+### Control Flow ✓
 
 ```
-# If (partially implemented - parsing works, execution incomplete)
+# If - executes body when condition is truthy
 condition if
     do-something
 end
 
-# If-else (not yet implemented)
+# If-else - executes else branch when condition is falsy
 condition if
     do-this
 else
     do-that
+end
+```
+
+**Truthiness:**
+- `false`, `nil`, and `0` are falsy
+- Everything else is truthy (including non-zero numbers, strings, arrays)
+
+**Examples:**
+```
+5 3 > if
+    "greater" print
+end
+
+x 0 = if
+    "zero" print
+else
+    "non-zero" print
 end
 ```
 
