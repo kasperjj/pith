@@ -22,6 +22,9 @@
 #include <sys/stat.h>
 #endif
 
+/* Global debug flag */
+bool g_debug = false;
+
 /* ========================================================================
    FILE SYSTEM IMPLEMENTATION
    ======================================================================== */
@@ -143,7 +146,7 @@ static char** fs_list_dir(const char *path, size_t *count, void *userdata) {
    ======================================================================== */
 
 static void print_usage(const char *program) {
-    printf("Usage: %s [project_path]\n", program);
+    printf("Usage: %s [options] [project_path]\n", program);
     printf("\n");
     printf("Opens a project directory in Pith.\n");
     printf("If no path is given, opens the current directory.\n");
@@ -151,6 +154,7 @@ static void print_usage(const char *program) {
     printf("Options:\n");
     printf("  -h, --help    Show this help message\n");
     printf("  -v, --version Show version information\n");
+    printf("  -d, --debug   Enable debug output (parsing, execution, rendering)\n");
 }
 
 static void print_version(void) {
@@ -170,6 +174,10 @@ int main(int argc, char *argv[]) {
         if (strcmp(argv[i], "-v") == 0 || strcmp(argv[i], "--version") == 0) {
             print_version();
             return 0;
+        }
+        if (strcmp(argv[i], "-d") == 0 || strcmp(argv[i], "--debug") == 0) {
+            g_debug = true;
+            continue;
         }
         /* First non-flag argument is the project path */
         project_path = argv[i];
@@ -196,6 +204,10 @@ int main(int argc, char *argv[]) {
         fprintf(stderr, "Failed to load project: %s\n", pith_get_error(rt));
         pith_runtime_free(rt);
         return 1;
+    }
+
+    if (g_debug) {
+        pith_debug_print_state(rt);
     }
     
     /* Create UI */
@@ -226,6 +238,20 @@ int main(int argc, char *argv[]) {
         
         /* Get view tree from runtime and render */
         PithView *view = pith_runtime_get_view(rt);
+        if (g_debug) {
+            static bool first_frame = true;
+            if (first_frame) {
+                fprintf(stderr, "[DEBUG] Getting view from runtime...\n");
+                if (view) {
+                    pith_debug_print_view(view, 0);
+                } else {
+                    fprintf(stderr, "[DEBUG] No view returned!\n");
+                    const char *err = pith_get_error(rt);
+                    if (err) fprintf(stderr, "[DEBUG] Error: %s\n", err);
+                }
+                first_frame = false;
+            }
+        }
         if (view) {
             pith_ui_render(ui, view);
         }

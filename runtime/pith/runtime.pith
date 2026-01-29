@@ -6,6 +6,7 @@
 # Root component - the base for all UI
 root:
     parent: component
+    ui: app
     
     # Style defaults (cascade to children)
     color: "white"

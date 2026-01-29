@@ -258,4 +258,14 @@ void pith_clear_error(PithRuntime *rt);
 /* Get error message (or NULL if no error) */
 const char* pith_get_error(PithRuntime *rt);
 
+/* ========================================================================
+   DEBUG
+   ======================================================================== */
+
+/* Print runtime state (dictionaries, slots, etc.) */
+void pith_debug_print_state(PithRuntime *rt);
+
+/* Print view hierarchy */
+void pith_debug_print_view(PithView *view, int indent);
+
 #endif /* PITH_RUNTIME_H */
