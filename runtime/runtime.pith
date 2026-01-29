@@ -1,0 +1,114 @@
+# Example Pith Runtime
+# 
+# This is a simple editor configuration that demonstrates
+# the basic structure of a Pith dictionary.
+
+# Root component - the base for all UI
+root:
+    parent: component
+    
+    # Style defaults (cascade to children)
+    color: "white"
+    background: "black"
+    padding: 1
+    gap: 1
+end
+
+# Main application component
+app:
+    parent: root
+    
+    # State
+    buffer: "Welcome to Pith!\n\nThis is a minimal, stack-based editor runtime.\n\nEdit this file to change the UI."
+    status: "Ready"
+    
+    # UI definition
+    ui:
+        [
+            header
+            editor-area
+            status-bar
+        ] vstack
+    end
+    
+    # Event handlers
+    on-key:
+        key "cmd-q" = if
+            "Goodbye!" print
+        end
+    end
+end
+
+# Header bar
+header:
+    parent: root
+    background: "darkgray"
+    padding: 1
+    
+    ui:
+        [
+            "Pith Editor" text
+            "v0.1" text
+        ] hstack
+    end
+end
+
+# Main editor area
+editor-area:
+    parent: root
+    
+    ui:
+        [
+            sidebar
+            content-area
+        ] hstack
+    end
+end
+
+# Sidebar with file list
+sidebar:
+    parent: root
+    background: "darkgray"
+    padding: 1
+    border: "right"
+    
+    files: ["runtime.pith", "README.md", "notes.txt"]
+    
+    ui:
+        [
+            "Files" text
+            files do file-item end map vstack
+        ] vstack
+    end
+end
+
+# Single file item in sidebar
+file-item:
+    parent: root
+    
+    ui: text
+end
+
+# Main content area
+content-area:
+    parent: root
+    padding: 1
+    
+    ui:
+        app.buffer text
+    end
+end
+
+# Status bar at bottom
+status-bar:
+    parent: root
+    background: "gray"
+    padding: 1
+    
+    ui:
+        [
+            app.status text
+            "Ln 1, Col 1" text
+        ] hstack
+    end
+end
