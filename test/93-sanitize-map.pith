@@ -1,0 +1,10 @@
+# expect: 42
+# expect: hello
+# sanitize keeps data values from maps
+main:
+    42 new-map "x" set
+    "hello" swap "msg" set
+    sanitize
+    dup "x" get print
+    "msg" get print
+end

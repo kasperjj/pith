@@ -1529,6 +1529,62 @@ static bool builtin_map_merge(PithRuntime *rt) {
     return pith_push(rt, PITH_DICT(new_dict));
 }
 
+/* Forward declaration for recursive sanitize */
+static PithValue pith_value_sanitize(PithValue value);
+
+static PithDict* pith_dict_sanitize(PithDict *src) {
+    PithDict *copy = pith_dict_new(src->name);
+    /* Don't copy parent - sanitized dict is standalone data */
+
+    for (size_t i = 0; i < src->slot_count; i++) {
+        PithSlot *s = &src->slots[i];
+        /* Only copy slots that have cached values (pure data) */
+        if (s->is_cached) {
+            PithValue sanitized = pith_value_sanitize(s->cached);
+            pith_dict_set_value(copy, s->name, sanitized);
+        }
+        /* Skip slots with executable code (body_start/body_end) */
+    }
+
+    return copy;
+}
+
+static PithArray* pith_array_sanitize(PithArray *src) {
+    PithArray *copy = pith_array_new();
+    for (size_t i = 0; i < src->length; i++) {
+        pith_array_push(copy, pith_value_sanitize(src->items[i]));
+    }
+    return copy;
+}
+
+static PithValue pith_value_sanitize(PithValue value) {
+    switch (value.type) {
+        case VAL_DICT:
+            return PITH_DICT(pith_dict_sanitize(value.as.dict));
+        case VAL_ARRAY:
+            return PITH_ARRAY(pith_array_sanitize(value.as.array));
+        case VAL_BLOCK:
+            /* Blocks are executable - return nil */
+            return PITH_NIL();
+        case VAL_VIEW:
+            /* Views are runtime objects - return nil */
+            return PITH_NIL();
+        default:
+            /* Primitives: nil, bool, number, string - copy as-is */
+            return pith_value_copy(value);
+    }
+}
+
+static bool builtin_sanitize(PithRuntime *rt) {
+    if (!pith_stack_has(rt, 1)) return false;
+    PithValue value = pith_pop(rt);
+
+    PithValue result = pith_value_sanitize(value);
+    pith_value_free(value);
+
+    return pith_push(rt, result);
+}
+
 /* Printing */
 static bool builtin_print(PithRuntime *rt) {
     if (!pith_stack_has(rt, 1)) return false;
@@ -2207,6 +2263,7 @@ static BuiltinEntry builtins[] = {
     {"has", builtin_map_has},
     {"remove", builtin_map_remove},
     {"merge", builtin_map_merge},
+    {"sanitize", builtin_sanitize},
 
     {NULL, NULL}
 };

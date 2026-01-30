@@ -1,0 +1,9 @@
+# expect: 1
+# expect: 2
+# expect: 3
+# sanitize preserves arrays
+main:
+    [1, 2, 3] new-map "nums" set
+    sanitize
+    "nums" get do print end each
+end

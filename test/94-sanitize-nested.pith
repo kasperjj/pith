@@ -1,0 +1,8 @@
+# expect: 99
+# sanitize works recursively on nested maps
+main:
+    99 new-map "val" set
+    new-map "inner" set
+    sanitize
+    "inner" get "val" get print
+end

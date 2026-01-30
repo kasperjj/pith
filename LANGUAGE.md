@@ -290,6 +290,7 @@ values      # ( map -- array )
 has         # ( map key -- bool )
 remove      # ( map key -- map )
 merge       # ( map map -- map )
+sanitize    # ( value -- value )   # recursive copy with only data (no code)
 ```
 
 **Example:**
