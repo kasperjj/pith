@@ -1,0 +1,12 @@
+# expect: hello
+# expect: 42
+# get-path test
+config:
+    name: "hello"
+    count: 42
+end
+
+main:
+    "config.name" get-path print
+    "config.count" get-path print
+end

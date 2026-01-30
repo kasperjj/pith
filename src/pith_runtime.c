@@ -12,6 +12,9 @@
 #include <dirent.h>
 #include <sys/stat.h>
 
+/* Forward declarations */
+static PithDict* pith_find_dict(PithRuntime *rt, const char *name);
+
 /* ========================================================================
    MEMORY HELPERS
    ======================================================================== */
@@ -2550,6 +2553,191 @@ static bool builtin_file_append(PithRuntime *rt) {
     return true;
 }
 
+/* ========================================================================
+   PATH-BASED ACCESS
+   ======================================================================== */
+
+/* set-path: ( value path -- ) sets value at dot-separated path */
+static bool builtin_set_path(PithRuntime *rt) {
+    if (!pith_stack_has(rt, 2)) return false;
+    PithValue path = pith_pop(rt);
+    PithValue value = pith_pop(rt);
+
+    if (!PITH_IS_STRING(path)) {
+        pith_error(rt, "set-path requires a string path");
+        pith_value_free(path);
+        pith_value_free(value);
+        return false;
+    }
+
+    /* Parse path "a.b.c" into parts */
+    char *path_copy = pith_strdup(path.as.string);
+    char *parts[64];
+    int part_count = 0;
+
+    char *token = strtok(path_copy, ".");
+    while (token && part_count < 64) {
+        parts[part_count++] = token;
+        token = strtok(NULL, ".");
+    }
+
+    if (part_count == 0) {
+        pith_error(rt, "set-path: empty path");
+        free(path_copy);
+        pith_value_free(path);
+        pith_value_free(value);
+        return false;
+    }
+
+    /* Find the root dictionary */
+    PithDict *current = pith_find_dict(rt, parts[0]);
+    if (!current) {
+        pith_error(rt, "set-path: unknown dictionary '%s'", parts[0]);
+        free(path_copy);
+        pith_value_free(path);
+        pith_value_free(value);
+        return false;
+    }
+
+    /* Traverse to the parent of the final slot */
+    for (int i = 1; i < part_count - 1; i++) {
+        PithSlot *slot = pith_dict_lookup(current, parts[i]);
+        if (!slot) {
+            pith_error(rt, "set-path: unknown slot '%s'", parts[i]);
+            free(path_copy);
+            pith_value_free(path);
+            pith_value_free(value);
+            return false;
+        }
+
+        if (slot->is_cached && slot->cached.type == VAL_DICT) {
+            current = slot->cached.as.dict;
+        } else if (!slot->is_cached) {
+            /* Execute slot to get value */
+            PithDict *saved_dict = rt->current_dict;
+            rt->current_dict = current;
+            if (!pith_execute_slot(rt, slot)) {
+                rt->current_dict = saved_dict;
+                free(path_copy);
+                pith_value_free(path);
+                pith_value_free(value);
+                return false;
+            }
+            rt->current_dict = saved_dict;
+
+            PithValue val = pith_pop(rt);
+            if (val.type != VAL_DICT) {
+                pith_error(rt, "set-path: '%s' is not a dictionary", parts[i]);
+                pith_value_free(val);
+                free(path_copy);
+                pith_value_free(path);
+                pith_value_free(value);
+                return false;
+            }
+            current = val.as.dict;
+            /* Don't free val - we're using its dict pointer */
+        } else {
+            pith_error(rt, "set-path: '%s' is not a dictionary", parts[i]);
+            free(path_copy);
+            pith_value_free(path);
+            pith_value_free(value);
+            return false;
+        }
+    }
+
+    /* Set the final slot */
+    const char *final_name = parts[part_count - 1];
+    pith_dict_set_value(current, final_name, value);
+
+    free(path_copy);
+    pith_value_free(path);
+    return true;
+}
+
+/* get-path: ( path -- value ) gets value at dot-separated path */
+static bool builtin_get_path(PithRuntime *rt) {
+    if (!pith_stack_has(rt, 1)) return false;
+    PithValue path = pith_pop(rt);
+
+    if (!PITH_IS_STRING(path)) {
+        pith_error(rt, "get-path requires a string path");
+        pith_value_free(path);
+        return false;
+    }
+
+    /* Parse path "a.b.c" into parts */
+    char *path_copy = pith_strdup(path.as.string);
+    char *parts[64];
+    int part_count = 0;
+
+    char *token = strtok(path_copy, ".");
+    while (token && part_count < 64) {
+        parts[part_count++] = token;
+        token = strtok(NULL, ".");
+    }
+
+    if (part_count == 0) {
+        pith_error(rt, "get-path: empty path");
+        free(path_copy);
+        pith_value_free(path);
+        return false;
+    }
+
+    /* Find the root dictionary */
+    PithDict *current = pith_find_dict(rt, parts[0]);
+    if (!current) {
+        pith_error(rt, "get-path: unknown dictionary '%s'", parts[0]);
+        free(path_copy);
+        pith_value_free(path);
+        return false;
+    }
+
+    /* Traverse to the final slot */
+    for (int i = 1; i < part_count; i++) {
+        PithSlot *slot = pith_dict_lookup(current, parts[i]);
+        if (!slot) {
+            pith_error(rt, "get-path: unknown slot '%s'", parts[i]);
+            free(path_copy);
+            pith_value_free(path);
+            return false;
+        }
+
+        if (i == part_count - 1) {
+            /* Final slot - return its value */
+            if (slot->is_cached) {
+                free(path_copy);
+                pith_value_free(path);
+                return pith_push(rt, pith_value_copy(slot->cached));
+            } else {
+                /* Execute slot to get value */
+                PithDict *saved_dict = rt->current_dict;
+                rt->current_dict = current;
+                bool result = pith_execute_slot(rt, slot);
+                rt->current_dict = saved_dict;
+                free(path_copy);
+                pith_value_free(path);
+                return result;
+            }
+        } else {
+            /* Intermediate slot - must be a dictionary */
+            if (slot->is_cached && slot->cached.type == VAL_DICT) {
+                current = slot->cached.as.dict;
+            } else {
+                pith_error(rt, "get-path: '%s' is not a dictionary", parts[i]);
+                free(path_copy);
+                pith_value_free(path);
+                return false;
+            }
+        }
+    }
+
+    /* Should not reach here, but handle single-part path */
+    free(path_copy);
+    pith_value_free(path);
+    pith_error(rt, "get-path: invalid path");
+    return false;
+}
+
 /* Printing */
 static bool builtin_print(PithRuntime *rt) {
     if (!pith_stack_has(rt, 1)) return false;
@@ -3254,6 +3442,10 @@ static BuiltinEntry builtins[] = {
     {"dir-list", builtin_dir_list},
     {"file-append", builtin_file_append},
 
+    /* Path-based access */
+    {"set-path", builtin_set_path},
+    {"get-path", builtin_get_path},
+
     {NULL, NULL}
 };
 
@@ -3303,7 +3495,7 @@ bool pith_execute_word(PithRuntime *rt, const char *name) {
     if (rt->current_dict) {
         PithSlot *slot = pith_dict_lookup(rt->current_dict, name);
         if (slot) {
-            /* If slot is a cached dictionary, execute its ui slot */
+            /* If slot is a cached dictionary, execute its ui slot or push it */
             if (slot->is_cached && slot->cached.type == VAL_DICT) {
                 PithDict *dict = slot->cached.as.dict;
                 PithSlot *ui_slot = pith_dict_lookup(dict, "ui");
@@ -3314,6 +3506,10 @@ bool pith_execute_word(PithRuntime *rt, const char *name) {
                     rt->current_dict = saved_dict;
                     g_exec_depth--;
                     return result;
+                } else {
+                    /* No ui slot - push dictionary as value */
+                    g_exec_depth--;
+                    return pith_push(rt, PITH_DICT(dict));
                 }
             } else {
                 bool result = pith_execute_slot(rt, slot);
@@ -3323,17 +3519,22 @@ bool pith_execute_word(PithRuntime *rt, const char *name) {
         }
     }
 
-    /* Check if it's a dictionary name in root - execute its ui slot */
+    /* Check if it's a dictionary name in root */
     PithDict *dict = pith_find_dict(rt, name);
     if (dict) {
         PithSlot *ui_slot = pith_dict_lookup(dict, "ui");
         if (ui_slot) {
+            /* Has ui slot - execute it */
             PithDict *saved_dict = rt->current_dict;
             rt->current_dict = dict;
             bool result = pith_execute_slot(rt, ui_slot);
             rt->current_dict = saved_dict;
             g_exec_depth--;
             return result;
+        } else {
+            /* No ui slot - push dictionary as value */
+            g_exec_depth--;
+            return pith_push(rt, PITH_DICT(dict));
         }
     }
 
@@ -3343,6 +3544,11 @@ bool pith_execute_word(PithRuntime *rt, const char *name) {
 }
 
 bool pith_execute_slot(PithRuntime *rt, PithSlot *slot) {
+    /* If slot has a cached value, push it instead of executing body */
+    if (slot->is_cached) {
+        return pith_push(rt, pith_value_copy(slot->cached));
+    }
+
     /* Execute tokens from body_start to body_end */
     for (size_t i = slot->body_start; i < slot->body_end; i++) {
         PithToken *tok = &rt->tokens[i];
@@ -3369,33 +3575,79 @@ bool pith_execute_slot(PithRuntime *rt, PithSlot *slot) {
                 break;
                 
             case TOK_WORD:
-                /* Check for dot-access: word.slot */
+                /* Check for dot-access: word.slot or word.slot.nested... */
                 if (i + 2 < slot->body_end &&
                     rt->tokens[i + 1].type == TOK_DOT &&
                     rt->tokens[i + 2].type == TOK_WORD) {
-                    /* Dot access: dict.slot */
-                    const char *dict_name = tok->text;
-                    const char *slot_name = rt->tokens[i + 2].text;
-                    PithDict *dict = pith_find_dict(rt, dict_name);
-                    if (dict) {
-                        PithSlot *target_slot = pith_dict_lookup(dict, slot_name);
-                        if (target_slot) {
+
+                    /* Collect all parts of the dot chain */
+                    size_t chain_start = i;
+                    size_t chain_end = i;
+                    while (chain_end + 2 < slot->body_end &&
+                           rt->tokens[chain_end + 1].type == TOK_DOT &&
+                           rt->tokens[chain_end + 2].type == TOK_WORD) {
+                        chain_end += 2;
+                    }
+
+                    /* First part is a dictionary name */
+                    const char *dict_name = rt->tokens[chain_start].text;
+                    PithDict *current = pith_find_dict(rt, dict_name);
+                    if (!current) {
+                        pith_error(rt, "Unknown dictionary: %s", dict_name);
+                        return false;
+                    }
+
+                    /* Traverse intermediate parts (all but the last) */
+                    for (size_t j = chain_start + 2; j < chain_end; j += 2) {
+                        const char *part_name = rt->tokens[j].text;
+                        PithSlot *part_slot = pith_dict_lookup(current, part_name);
+                        if (!part_slot) {
+                            pith_error(rt, "Unknown slot '%s' in path", part_name);
+                            return false;
+                        }
+
+                        /* Get the value - must be a dict/map */
+                        if (part_slot->is_cached && part_slot->cached.type == VAL_DICT) {
+                            current = part_slot->cached.as.dict;
+                        } else {
+                            /* Execute slot to get value */
                             PithDict *saved_dict = rt->current_dict;
-                            rt->current_dict = dict;
-                            if (!pith_execute_slot(rt, target_slot)) {
+                            rt->current_dict = current;
+                            if (!pith_execute_slot(rt, part_slot)) {
                                 rt->current_dict = saved_dict;
                                 return false;
                             }
                             rt->current_dict = saved_dict;
-                        } else {
-                            pith_error(rt, "Unknown slot '%s' in dict '%s'", slot_name, dict_name);
-                            return false;
+
+                            PithValue val = pith_pop(rt);
+                            if (val.type != VAL_DICT) {
+                                pith_error(rt, "'%s' is not a dictionary/map", part_name);
+                                pith_value_free(val);
+                                return false;
+                            }
+                            current = val.as.dict;
+                            /* Note: we don't free val here as we're using its dict */
                         }
-                    } else {
-                        pith_error(rt, "Unknown dictionary: %s", dict_name);
+                    }
+
+                    /* Execute the final slot */
+                    const char *final_name = rt->tokens[chain_end].text;
+                    PithSlot *final_slot = pith_dict_lookup(current, final_name);
+                    if (!final_slot) {
+                        pith_error(rt, "Unknown slot '%s' in path", final_name);
                         return false;
                     }
-                    i += 2; /* Skip DOT and second WORD */
+
+                    PithDict *saved_dict = rt->current_dict;
+                    rt->current_dict = current;
+                    if (!pith_execute_slot(rt, final_slot)) {
+                        rt->current_dict = saved_dict;
+                        return false;
+                    }
+                    rt->current_dict = saved_dict;
+
+                    /* Skip all tokens in the chain */
+                    i = chain_end;
                 } else {
                     if (!pith_execute_word(rt, tok->text)) {
                         return false;

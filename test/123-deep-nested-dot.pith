@@ -1,0 +1,24 @@
+# expect: hello
+# expect: 42
+# Deep nested dot notation (3+ levels)
+level3:
+    value: "hello"
+    num: 42
+end
+
+level2:
+    nested: level3
+end
+
+level1:
+    child: level2
+end
+
+root:
+    data: level1
+end
+
+main:
+    root.data.child.nested.value print
+    root.data.child.nested.num print
+end

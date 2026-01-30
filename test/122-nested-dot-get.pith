@@ -1,0 +1,16 @@
+# expect: dark
+# expect: 16
+# Nested dot notation for getting values
+settings:
+    theme: "dark"
+    font-size: 16
+end
+
+app:
+    config: settings
+end
+
+main:
+    app.config.theme print
+    app.config.font-size print
+end

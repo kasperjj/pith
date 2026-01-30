@@ -1,0 +1,14 @@
+# expect: updated
+# set-path with nested dictionaries
+inner:
+    value: "original"
+end
+
+outer:
+    data: inner
+end
+
+main:
+    "updated" "outer.data.value" set-path
+    outer.data.value print
+end

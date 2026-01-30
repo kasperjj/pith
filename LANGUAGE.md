@@ -142,13 +142,23 @@ end
 # Dot notation for accessing slots in other dictionaries
 app.buffer              # gets 'buffer' slot from 'app' dictionary
 settings.theme          # gets 'theme' slot from 'settings' dictionary
+
+# Nested dot notation works to any depth
+app.config.theme        # gets nested value
+root.level1.level2.val  # deep nesting supported
+
+# Dynamic path access with strings
+"app.config.theme" get-path   # same as app.config.theme
 ```
 
-### Setting Values ○
+### Setting Values ✓
 
 ```
-# Not yet implemented
-"dark" config.theme set
+# set-path for modifying dictionary slots
+"dark" "config.theme" set-path
+
+# Nested paths work too
+"new value" "app.settings.theme" set-path
 ```
 
 ### Control Flow ✓

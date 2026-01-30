@@ -1,0 +1,14 @@
+# expect: hello
+# expect: world
+# set-path test
+config:
+    value: "initial"
+end
+
+main:
+    "hello" "config.value" set-path
+    config.value print
+
+    "world" "config.value" set-path
+    config.value print
+end
