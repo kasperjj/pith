@@ -219,13 +219,9 @@ max         # ( a b -- larger )
 
 ```
 =           # ( a b -- bool )
+!=          # ( a b -- bool )
 <           # ( a b -- bool )
 >           # ( a b -- bool )
-```
-
-**Not yet implemented:**
-```
-!=          # ( a b -- bool )
 <=          # ( a b -- bool )
 >=          # ( a b -- bool )
 ```

@@ -1,0 +1,9 @@
+# expect: false
+# expect: true
+# expect: true
+# >= (greater than or equal) test
+main:
+    3 5 >= print
+    5 5 >= print
+    7 5 >= print
+end

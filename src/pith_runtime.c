@@ -1060,6 +1060,38 @@ static bool builtin_greater(PithRuntime *rt) {
     return pith_push(rt, PITH_BOOL(a.as.number > b.as.number));
 }
 
+static bool builtin_not_equal(PithRuntime *rt) {
+    if (!pith_stack_has(rt, 2)) return false;
+    PithValue b = pith_pop(rt);
+    PithValue a = pith_pop(rt);
+    bool result = !pith_value_equal(a, b);
+    pith_value_free(a);
+    pith_value_free(b);
+    return pith_push(rt, PITH_BOOL(result));
+}
+
+static bool builtin_less_equal(PithRuntime *rt) {
+    if (!pith_stack_has(rt, 2)) return false;
+    PithValue b = pith_pop(rt);
+    PithValue a = pith_pop(rt);
+    if (!PITH_IS_NUMBER(a) || !PITH_IS_NUMBER(b)) {
+        pith_error(rt, "<= requires numbers");
+        return false;
+    }
+    return pith_push(rt, PITH_BOOL(a.as.number <= b.as.number));
+}
+
+static bool builtin_greater_equal(PithRuntime *rt) {
+    if (!pith_stack_has(rt, 2)) return false;
+    PithValue b = pith_pop(rt);
+    PithValue a = pith_pop(rt);
+    if (!PITH_IS_NUMBER(a) || !PITH_IS_NUMBER(b)) {
+        pith_error(rt, ">= requires numbers");
+        return false;
+    }
+    return pith_push(rt, PITH_BOOL(a.as.number >= b.as.number));
+}
+
 /* Logic */
 static bool builtin_and(PithRuntime *rt) {
     if (!pith_stack_has(rt, 2)) return false;
@@ -3124,7 +3156,10 @@ static BuiltinEntry builtins[] = {
     {"=", builtin_equal},
     {"<", builtin_less},
     {">", builtin_greater},
-    
+    {"!=", builtin_not_equal},
+    {"<=", builtin_less_equal},
+    {">=", builtin_greater_equal},
+
     /* Logic */
     {"and", builtin_and},
     {"or", builtin_or},

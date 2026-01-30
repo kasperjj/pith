@@ -1,0 +1,9 @@
+# expect: true
+# expect: false
+# expect: true
+# != (not equal) test
+main:
+    5 3 != print
+    5 5 != print
+    "a" "b" != print
+end
