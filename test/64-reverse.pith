@@ -1,0 +1,9 @@
+# expect: 3
+# expect: 1
+# expect: c
+# reverse: ( array -- array )
+main:
+    [1, 2, 3] reverse first print
+    [1, 2, 3] reverse last print
+    ["a", "b", "c"] reverse first print
+end

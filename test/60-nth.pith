@@ -1,0 +1,9 @@
+# expect: b
+# expect: 20
+# expect: nil
+# nth: ( array n -- item )
+main:
+    ["a", "b", "c"] 1 nth print
+    [10, 20, 30] 1 nth print
+    [1, 2, 3] 10 nth print
+end

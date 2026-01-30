@@ -1,0 +1,7 @@
+# expect: true
+# expect: false
+# all: ( array block -- bool )
+main:
+    [2, 4, 6] do 2 mod 0 = end all print
+    [1, 2, 3] do 2 mod 0 = end all print
+end

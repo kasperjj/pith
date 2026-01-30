@@ -1,0 +1,7 @@
+# expect: 4
+# expect: 0
+# prepend: ( item array -- array )
+main:
+    0 [1, 2, 3] prepend length print
+    0 [1, 2, 3] prepend first print
+end

@@ -1,0 +1,9 @@
+# expect: true
+# expect: false
+# expect: true
+# contains: ( array item -- bool )
+main:
+    [1, 2, 3] 2 contains print
+    [1, 2, 3] 5 contains print
+    ["a", "b", "c"] "b" contains print
+end

@@ -1,0 +1,7 @@
+# expect: true
+# expect: false
+# empty?: ( array -- bool )
+main:
+    [] empty? print
+    [1, 2, 3] empty? print
+end

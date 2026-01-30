@@ -1,0 +1,7 @@
+# expect: 15
+# expect: 120
+# reduce: ( array initial block -- value )
+main:
+    [1, 2, 3, 4, 5] 0 do add end reduce print
+    [1, 2, 3, 4, 5] 1 do multiply end reduce print
+end

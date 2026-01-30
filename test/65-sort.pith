@@ -1,0 +1,11 @@
+# expect: 1
+# expect: 5
+# expect: a
+# expect: c
+# sort: ( array -- array )
+main:
+    [3, 1, 4, 1, 5] sort first print
+    [3, 1, 4, 1, 5] sort last print
+    ["c", "a", "b"] sort first print
+    ["c", "a", "b"] sort last print
+end

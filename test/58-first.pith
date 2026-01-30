@@ -1,0 +1,7 @@
+# expect: 1
+# expect: hello
+# first: ( array -- item )
+main:
+    [1, 2, 3] first print
+    ["hello", "world"] first print
+end

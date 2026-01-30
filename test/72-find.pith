@@ -1,0 +1,7 @@
+# expect: 4
+# expect: nil
+# find: ( array block -- item )
+main:
+    [1, 2, 3, 4, 5] do 3 > end find print
+    [1, 2, 3] do 10 > end find print
+end

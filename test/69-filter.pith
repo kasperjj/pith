@@ -1,0 +1,8 @@
+# expect: 2
+# expect: 4
+# expect: 6
+# filter: ( array block -- array )
+main:
+    [1, 2, 3, 4, 5, 6] do 2 mod 0 = end filter
+    do print end map drop
+end

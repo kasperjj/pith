@@ -1,0 +1,9 @@
+# expect: 2
+# expect: 2
+# expect: 3
+# slice: ( array start end -- array )
+main:
+    [1, 2, 3, 4, 5] 1 3 slice length print
+    [1, 2, 3, 4, 5] 1 3 slice first print
+    [1, 2, 3, 4, 5] 1 3 slice last print
+end

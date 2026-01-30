@@ -253,16 +253,10 @@ uppercase   # ( str -- str )
 lowercase   # ( str -- str )
 ```
 
-## Arrays
+## Arrays ✓
 
-**Implemented:**
 ```
 length      # ( array -- n )
-map         # ( array block -- array )
-```
-
-**Not yet implemented:**
-```
 first       # ( array -- item )
 last        # ( array -- item )
 nth         # ( array n -- item )
@@ -274,6 +268,7 @@ sort        # ( array -- array )
 contains    # ( array item -- bool )
 index-of    # ( array item -- n )
 empty?      # ( array -- bool )
+map         # ( array block -- array )
 filter      # ( array block -- array )
 each        # ( array block -- )
 reduce      # ( array initial block -- value )

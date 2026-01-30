@@ -1,0 +1,7 @@
+# expect: 4
+# expect: 4
+# append: ( array item -- array )
+main:
+    [1, 2, 3] 4 append length print
+    [1, 2, 3] 4 append last print
+end

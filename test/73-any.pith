@@ -1,0 +1,7 @@
+# expect: true
+# expect: false
+# any: ( array block -- bool )
+main:
+    [1, 2, 3, 4, 5] do 3 > end any print
+    [1, 2, 3] do 10 > end any print
+end

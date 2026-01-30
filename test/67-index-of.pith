@@ -1,0 +1,9 @@
+# expect: 1
+# expect: -1
+# expect: 2
+# index-of: ( array item -- n )
+main:
+    [1, 2, 3] 2 index-of print
+    [1, 2, 3] 5 index-of print
+    ["a", "b", "c"] "c" index-of print
+end

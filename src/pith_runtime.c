@@ -988,19 +988,32 @@ static bool builtin_substring(PithRuntime *rt) {
 static bool builtin_contains(PithRuntime *rt) {
     if (!pith_stack_has(rt, 2)) return false;
     PithValue search = pith_pop(rt);
-    PithValue str = pith_pop(rt);
+    PithValue container = pith_pop(rt);
 
-    if (!PITH_IS_STRING(str) || !PITH_IS_STRING(search)) {
-        pith_error(rt, "contains requires two strings");
-        pith_value_free(str);
+    if (PITH_IS_STRING(container) && PITH_IS_STRING(search)) {
+        bool found = strstr(container.as.string, search.as.string) != NULL;
+        pith_value_free(container);
         pith_value_free(search);
-        return false;
+        return pith_push(rt, PITH_BOOL(found));
     }
 
-    bool found = strstr(str.as.string, search.as.string) != NULL;
-    pith_value_free(str);
+    if (PITH_IS_ARRAY(container)) {
+        bool found = false;
+        for (size_t i = 0; i < container.as.array->length; i++) {
+            if (pith_value_equal(container.as.array->items[i], search)) {
+                found = true;
+                break;
+            }
+        }
+        pith_value_free(container);
+        pith_value_free(search);
+        return pith_push(rt, PITH_BOOL(found));
+    }
+
+    pith_error(rt, "contains requires string or array");
+    pith_value_free(container);
     pith_value_free(search);
-    return pith_push(rt, PITH_BOOL(found));
+    return false;
 }
 
 static bool builtin_replace(PithRuntime *rt) {
@@ -1183,6 +1196,458 @@ static bool builtin_spacer(PithRuntime *rt) {
 
 /* map: array block -> array */
 /* Applies block to each element, collects results */
+/* Array Operations */
+static bool builtin_first(PithRuntime *rt) {
+    if (!pith_stack_has(rt, 1)) return false;
+    PithValue arr = pith_pop(rt);
+    if (!PITH_IS_ARRAY(arr)) {
+        pith_error(rt, "first requires an array");
+        pith_value_free(arr);
+        return false;
+    }
+    if (arr.as.array->length == 0) {
+        pith_value_free(arr);
+        return pith_push(rt, PITH_NIL());
+    }
+    PithValue result = pith_value_copy(arr.as.array->items[0]);
+    pith_value_free(arr);
+    return pith_push(rt, result);
+}
+
+static bool builtin_last(PithRuntime *rt) {
+    if (!pith_stack_has(rt, 1)) return false;
+    PithValue arr = pith_pop(rt);
+    if (!PITH_IS_ARRAY(arr)) {
+        pith_error(rt, "last requires an array");
+        pith_value_free(arr);
+        return false;
+    }
+    if (arr.as.array->length == 0) {
+        pith_value_free(arr);
+        return pith_push(rt, PITH_NIL());
+    }
+    PithValue result = pith_value_copy(arr.as.array->items[arr.as.array->length - 1]);
+    pith_value_free(arr);
+    return pith_push(rt, result);
+}
+
+static bool builtin_nth(PithRuntime *rt) {
+    if (!pith_stack_has(rt, 2)) return false;
+    PithValue idx = pith_pop(rt);
+    PithValue arr = pith_pop(rt);
+    if (!PITH_IS_ARRAY(arr) || !PITH_IS_NUMBER(idx)) {
+        pith_error(rt, "nth requires array and index");
+        pith_value_free(arr);
+        pith_value_free(idx);
+        return false;
+    }
+    int n = (int)idx.as.number;
+    if (n < 0 || (size_t)n >= arr.as.array->length) {
+        pith_value_free(arr);
+        return pith_push(rt, PITH_NIL());
+    }
+    PithValue result = pith_value_copy(arr.as.array->items[n]);
+    pith_value_free(arr);
+    return pith_push(rt, result);
+}
+
+static bool builtin_append(PithRuntime *rt) {
+    if (!pith_stack_has(rt, 2)) return false;
+    PithValue item = pith_pop(rt);
+    PithValue arr = pith_pop(rt);
+    if (!PITH_IS_ARRAY(arr)) {
+        pith_error(rt, "append requires an array");
+        pith_value_free(arr);
+        pith_value_free(item);
+        return false;
+    }
+    PithArray *new_arr = pith_array_new();
+    for (size_t i = 0; i < arr.as.array->length; i++) {
+        pith_array_push(new_arr, pith_value_copy(arr.as.array->items[i]));
+    }
+    pith_array_push(new_arr, item);
+    pith_value_free(arr);
+    return pith_push(rt, PITH_ARRAY(new_arr));
+}
+
+static bool builtin_prepend(PithRuntime *rt) {
+    if (!pith_stack_has(rt, 2)) return false;
+    PithValue arr = pith_pop(rt);
+    PithValue item = pith_pop(rt);
+    if (!PITH_IS_ARRAY(arr)) {
+        pith_error(rt, "prepend requires an array");
+        pith_value_free(arr);
+        pith_value_free(item);
+        return false;
+    }
+    PithArray *new_arr = pith_array_new();
+    pith_array_push(new_arr, item);
+    for (size_t i = 0; i < arr.as.array->length; i++) {
+        pith_array_push(new_arr, pith_value_copy(arr.as.array->items[i]));
+    }
+    pith_value_free(arr);
+    return pith_push(rt, PITH_ARRAY(new_arr));
+}
+
+static bool builtin_slice(PithRuntime *rt) {
+    if (!pith_stack_has(rt, 3)) return false;
+    PithValue end_val = pith_pop(rt);
+    PithValue start_val = pith_pop(rt);
+    PithValue arr = pith_pop(rt);
+    if (!PITH_IS_ARRAY(arr) || !PITH_IS_NUMBER(start_val) || !PITH_IS_NUMBER(end_val)) {
+        pith_error(rt, "slice requires array, start, end");
+        pith_value_free(arr);
+        pith_value_free(start_val);
+        pith_value_free(end_val);
+        return false;
+    }
+    int start = (int)start_val.as.number;
+    int end = (int)end_val.as.number;
+    size_t len = arr.as.array->length;
+
+    if (start < 0) start = 0;
+    if (end < 0) end = 0;
+    if ((size_t)start > len) start = len;
+    if ((size_t)end > len) end = len;
+    if (start > end) start = end;
+
+    PithArray *new_arr = pith_array_new();
+    for (int i = start; i < end; i++) {
+        pith_array_push(new_arr, pith_value_copy(arr.as.array->items[i]));
+    }
+    pith_value_free(arr);
+    return pith_push(rt, PITH_ARRAY(new_arr));
+}
+
+static bool builtin_reverse(PithRuntime *rt) {
+    if (!pith_stack_has(rt, 1)) return false;
+    PithValue arr = pith_pop(rt);
+    if (!PITH_IS_ARRAY(arr)) {
+        pith_error(rt, "reverse requires an array");
+        pith_value_free(arr);
+        return false;
+    }
+    PithArray *new_arr = pith_array_new();
+    for (size_t i = arr.as.array->length; i > 0; i--) {
+        pith_array_push(new_arr, pith_value_copy(arr.as.array->items[i - 1]));
+    }
+    pith_value_free(arr);
+    return pith_push(rt, PITH_ARRAY(new_arr));
+}
+
+static int pith_value_compare(const void *a, const void *b) {
+    const PithValue *va = (const PithValue *)a;
+    const PithValue *vb = (const PithValue *)b;
+
+    if (PITH_IS_NUMBER(*va) && PITH_IS_NUMBER(*vb)) {
+        double diff = va->as.number - vb->as.number;
+        return (diff > 0) - (diff < 0);
+    }
+    if (PITH_IS_STRING(*va) && PITH_IS_STRING(*vb)) {
+        return strcmp(va->as.string, vb->as.string);
+    }
+    return 0;
+}
+
+static bool builtin_sort(PithRuntime *rt) {
+    if (!pith_stack_has(rt, 1)) return false;
+    PithValue arr = pith_pop(rt);
+    if (!PITH_IS_ARRAY(arr)) {
+        pith_error(rt, "sort requires an array");
+        pith_value_free(arr);
+        return false;
+    }
+    PithArray *new_arr = pith_array_new();
+    for (size_t i = 0; i < arr.as.array->length; i++) {
+        pith_array_push(new_arr, pith_value_copy(arr.as.array->items[i]));
+    }
+    qsort(new_arr->items, new_arr->length, sizeof(PithValue), pith_value_compare);
+    pith_value_free(arr);
+    return pith_push(rt, PITH_ARRAY(new_arr));
+}
+
+static bool builtin_index_of(PithRuntime *rt) {
+    if (!pith_stack_has(rt, 2)) return false;
+    PithValue item = pith_pop(rt);
+    PithValue arr = pith_pop(rt);
+    if (!PITH_IS_ARRAY(arr)) {
+        pith_error(rt, "index-of requires an array");
+        pith_value_free(arr);
+        pith_value_free(item);
+        return false;
+    }
+    double idx = -1;
+    for (size_t i = 0; i < arr.as.array->length; i++) {
+        if (pith_value_equal(arr.as.array->items[i], item)) {
+            idx = (double)i;
+            break;
+        }
+    }
+    pith_value_free(arr);
+    pith_value_free(item);
+    return pith_push(rt, PITH_NUMBER(idx));
+}
+
+static bool builtin_empty(PithRuntime *rt) {
+    if (!pith_stack_has(rt, 1)) return false;
+    PithValue arr = pith_pop(rt);
+    if (!PITH_IS_ARRAY(arr)) {
+        pith_error(rt, "empty? requires an array");
+        pith_value_free(arr);
+        return false;
+    }
+    bool empty = arr.as.array->length == 0;
+    pith_value_free(arr);
+    return pith_push(rt, PITH_BOOL(empty));
+}
+
+static bool builtin_filter(PithRuntime *rt) {
+    if (!pith_stack_has(rt, 2)) return false;
+    PithValue block_val = pith_pop(rt);
+    PithValue arr_val = pith_pop(rt);
+
+    if (!PITH_IS_ARRAY(arr_val)) {
+        pith_error(rt, "filter requires array as first argument");
+        pith_value_free(arr_val);
+        pith_value_free(block_val);
+        return false;
+    }
+    if (!PITH_IS_BLOCK(block_val)) {
+        pith_error(rt, "filter requires block as second argument");
+        pith_value_free(arr_val);
+        pith_value_free(block_val);
+        return false;
+    }
+
+    PithArray *input = arr_val.as.array;
+    PithBlock *block = block_val.as.block;
+    PithArray *output = pith_array_new();
+
+    for (size_t i = 0; i < input->length; i++) {
+        pith_push(rt, pith_value_copy(input->items[i]));
+        pith_execute_block(rt, block);
+        if (pith_stack_has(rt, 1)) {
+            PithValue result = pith_pop(rt);
+            bool keep = false;
+            if (PITH_IS_BOOL(result)) keep = result.as.boolean;
+            else if (PITH_IS_NUMBER(result)) keep = result.as.number != 0;
+            else if (!PITH_IS_NIL(result)) keep = true;
+            pith_value_free(result);
+            if (keep) {
+                pith_array_push(output, pith_value_copy(input->items[i]));
+            }
+        }
+    }
+
+    pith_value_free(arr_val);
+    free(block);
+    return pith_push(rt, PITH_ARRAY(output));
+}
+
+static bool builtin_each(PithRuntime *rt) {
+    if (!pith_stack_has(rt, 2)) return false;
+    PithValue block_val = pith_pop(rt);
+    PithValue arr_val = pith_pop(rt);
+
+    if (!PITH_IS_ARRAY(arr_val)) {
+        pith_error(rt, "each requires array as first argument");
+        pith_value_free(arr_val);
+        pith_value_free(block_val);
+        return false;
+    }
+    if (!PITH_IS_BLOCK(block_val)) {
+        pith_error(rt, "each requires block as second argument");
+        pith_value_free(arr_val);
+        pith_value_free(block_val);
+        return false;
+    }
+
+    PithArray *input = arr_val.as.array;
+    PithBlock *block = block_val.as.block;
+
+    for (size_t i = 0; i < input->length; i++) {
+        pith_push(rt, pith_value_copy(input->items[i]));
+        pith_execute_block(rt, block);
+    }
+
+    pith_value_free(arr_val);
+    free(block);
+    return true;
+}
+
+static bool builtin_reduce(PithRuntime *rt) {
+    if (!pith_stack_has(rt, 3)) return false;
+    PithValue block_val = pith_pop(rt);
+    PithValue initial = pith_pop(rt);
+    PithValue arr_val = pith_pop(rt);
+
+    if (!PITH_IS_ARRAY(arr_val)) {
+        pith_error(rt, "reduce requires array as first argument");
+        pith_value_free(arr_val);
+        pith_value_free(initial);
+        pith_value_free(block_val);
+        return false;
+    }
+    if (!PITH_IS_BLOCK(block_val)) {
+        pith_error(rt, "reduce requires block as third argument");
+        pith_value_free(arr_val);
+        pith_value_free(initial);
+        pith_value_free(block_val);
+        return false;
+    }
+
+    PithArray *input = arr_val.as.array;
+    PithBlock *block = block_val.as.block;
+    PithValue accumulator = initial;
+
+    for (size_t i = 0; i < input->length; i++) {
+        pith_push(rt, accumulator);
+        pith_push(rt, pith_value_copy(input->items[i]));
+        pith_execute_block(rt, block);
+        if (pith_stack_has(rt, 1)) {
+            accumulator = pith_pop(rt);
+        } else {
+            accumulator = PITH_NIL();
+        }
+    }
+
+    pith_value_free(arr_val);
+    free(block);
+    return pith_push(rt, accumulator);
+}
+
+static bool builtin_find(PithRuntime *rt) {
+    if (!pith_stack_has(rt, 2)) return false;
+    PithValue block_val = pith_pop(rt);
+    PithValue arr_val = pith_pop(rt);
+
+    if (!PITH_IS_ARRAY(arr_val)) {
+        pith_error(rt, "find requires array as first argument");
+        pith_value_free(arr_val);
+        pith_value_free(block_val);
+        return false;
+    }
+    if (!PITH_IS_BLOCK(block_val)) {
+        pith_error(rt, "find requires block as second argument");
+        pith_value_free(arr_val);
+        pith_value_free(block_val);
+        return false;
+    }
+
+    PithArray *input = arr_val.as.array;
+    PithBlock *block = block_val.as.block;
+    PithValue found = PITH_NIL();
+
+    for (size_t i = 0; i < input->length; i++) {
+        pith_push(rt, pith_value_copy(input->items[i]));
+        pith_execute_block(rt, block);
+        if (pith_stack_has(rt, 1)) {
+            PithValue result = pith_pop(rt);
+            bool match = false;
+            if (PITH_IS_BOOL(result)) match = result.as.boolean;
+            else if (PITH_IS_NUMBER(result)) match = result.as.number != 0;
+            else if (!PITH_IS_NIL(result)) match = true;
+            pith_value_free(result);
+            if (match) {
+                found = pith_value_copy(input->items[i]);
+                break;
+            }
+        }
+    }
+
+    pith_value_free(arr_val);
+    free(block);
+    return pith_push(rt, found);
+}
+
+static bool builtin_any(PithRuntime *rt) {
+    if (!pith_stack_has(rt, 2)) return false;
+    PithValue block_val = pith_pop(rt);
+    PithValue arr_val = pith_pop(rt);
+
+    if (!PITH_IS_ARRAY(arr_val)) {
+        pith_error(rt, "any requires array as first argument");
+        pith_value_free(arr_val);
+        pith_value_free(block_val);
+        return false;
+    }
+    if (!PITH_IS_BLOCK(block_val)) {
+        pith_error(rt, "any requires block as second argument");
+        pith_value_free(arr_val);
+        pith_value_free(block_val);
+        return false;
+    }
+
+    PithArray *input = arr_val.as.array;
+    PithBlock *block = block_val.as.block;
+    bool any_match = false;
+
+    for (size_t i = 0; i < input->length; i++) {
+        pith_push(rt, pith_value_copy(input->items[i]));
+        pith_execute_block(rt, block);
+        if (pith_stack_has(rt, 1)) {
+            PithValue result = pith_pop(rt);
+            bool match = false;
+            if (PITH_IS_BOOL(result)) match = result.as.boolean;
+            else if (PITH_IS_NUMBER(result)) match = result.as.number != 0;
+            else if (!PITH_IS_NIL(result)) match = true;
+            pith_value_free(result);
+            if (match) {
+                any_match = true;
+                break;
+            }
+        }
+    }
+
+    pith_value_free(arr_val);
+    free(block);
+    return pith_push(rt, PITH_BOOL(any_match));
+}
+
+static bool builtin_all(PithRuntime *rt) {
+    if (!pith_stack_has(rt, 2)) return false;
+    PithValue block_val = pith_pop(rt);
+    PithValue arr_val = pith_pop(rt);
+
+    if (!PITH_IS_ARRAY(arr_val)) {
+        pith_error(rt, "all requires array as first argument");
+        pith_value_free(arr_val);
+        pith_value_free(block_val);
+        return false;
+    }
+    if (!PITH_IS_BLOCK(block_val)) {
+        pith_error(rt, "all requires block as second argument");
+        pith_value_free(arr_val);
+        pith_value_free(block_val);
+        return false;
+    }
+
+    PithArray *input = arr_val.as.array;
+    PithBlock *block = block_val.as.block;
+    bool all_match = true;
+
+    for (size_t i = 0; i < input->length; i++) {
+        pith_push(rt, pith_value_copy(input->items[i]));
+        pith_execute_block(rt, block);
+        if (pith_stack_has(rt, 1)) {
+            PithValue result = pith_pop(rt);
+            bool match = false;
+            if (PITH_IS_BOOL(result)) match = result.as.boolean;
+            else if (PITH_IS_NUMBER(result)) match = result.as.number != 0;
+            else if (!PITH_IS_NIL(result)) match = true;
+            pith_value_free(result);
+            if (!match) {
+                all_match = false;
+                break;
+            }
+        }
+    }
+
+    pith_value_free(arr_val);
+    free(block);
+    return pith_push(rt, PITH_BOOL(all_match));
+}
+
 static bool builtin_map(PithRuntime *rt) {
     if (!pith_stack_has(rt, 2)) return false;
     PithValue block_val = pith_pop(rt);
@@ -1278,8 +1743,26 @@ static BuiltinEntry builtins[] = {
     {"hstack", builtin_hstack},
     {"spacer", builtin_spacer},
 
+    /* Arrays */
+    {"first", builtin_first},
+    {"last", builtin_last},
+    {"nth", builtin_nth},
+    {"append", builtin_append},
+    {"prepend", builtin_prepend},
+    {"slice", builtin_slice},
+    {"reverse", builtin_reverse},
+    {"sort", builtin_sort},
+    {"index-of", builtin_index_of},
+    {"empty?", builtin_empty},
+
     /* Functional */
     {"map", builtin_map},
+    {"filter", builtin_filter},
+    {"each", builtin_each},
+    {"reduce", builtin_reduce},
+    {"find", builtin_find},
+    {"any", builtin_any},
+    {"all", builtin_all},
 
     {NULL, NULL}
 };
