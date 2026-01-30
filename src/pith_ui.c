@@ -7,6 +7,7 @@
 
 #include "pith_ui.h"
 #include "raylib.h"
+#include "font_data.h"
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
@@ -38,13 +39,13 @@ PithUIConfig pith_ui_default_config(void) {
         .window_width = 1200,
         .window_height = 800,
         .title = "Pith",
-        
+
         .cell_width = 10,
         .cell_height = 20,
-        
-        .font_path = NULL,
+
+        .font_path = NULL,  /* Uses embedded font by default */
         .font_size = 18,
-        
+
         .color_fg = PITH_COLOR_WHITE,
         .color_bg = PITH_COLOR_BLACK,
         .color_border = PITH_COLOR_GRAY,
@@ -206,13 +207,25 @@ PithUI* pith_ui_new(PithUIConfig config) {
     InitWindow(config.window_width, config.window_height, config.title);
     SetTargetFPS(60);
     
-    /* Load font */
-    if (config.font_path) {
+    /* Load font - prefer external file if specified, otherwise use embedded */
+    if (config.font_path && FileExists(config.font_path)) {
         ui->font = LoadFontEx(config.font_path, config.font_size, NULL, 0);
-        ui->font_loaded = true;
+        if (ui->font.baseSize > 0) {
+            ui->font_loaded = true;
+        } else {
+            ui->font = GetFontDefault();
+            ui->font_loaded = false;
+        }
     } else {
-        ui->font = GetFontDefault();
-        ui->font_loaded = false;
+        /* Use embedded DepartureMono font */
+        ui->font = LoadFontFromMemory(".otf", FONT_DATA, FONT_DATA_SIZE,
+                                       config.font_size, NULL, 0);
+        if (ui->font.baseSize > 0) {
+            ui->font_loaded = true;
+        } else {
+            ui->font = GetFontDefault();
+            ui->font_loaded = false;
+        }
     }
     
     /* Calculate cell dimensions */
