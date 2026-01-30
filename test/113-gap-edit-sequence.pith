@@ -1,0 +1,11 @@
+# expect: Hello, World!
+# Test a realistic editing sequence
+main:
+    "Hello World" string-to-gap
+    5 swap gap-goto
+    1 swap gap-delete
+    ", " swap gap-insert
+    12 swap gap-goto
+    "!" swap gap-insert
+    gap-to-string print
+end

@@ -1,0 +1,10 @@
+# expect: 3
+# expect: 1
+# gap-move: ( n gapbuf -- gapbuf ) moves cursor by n positions
+main:
+    "hello" string-to-gap
+    3 swap gap-move
+    dup gap-cursor print
+    -2 swap gap-move
+    gap-cursor print
+end

@@ -1,0 +1,7 @@
+# expect: gapbuf
+# expect: 0
+# new-gap: ( -- gapbuf ) creates an empty gap buffer
+main:
+    new-gap type print
+    new-gap gap-length print
+end

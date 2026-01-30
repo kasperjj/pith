@@ -1,0 +1,7 @@
+# expect: hello world
+# gap-insert: ( str gapbuf -- gapbuf ) inserts string at cursor
+main:
+    "hello" new-gap gap-insert
+    " world" swap gap-insert
+    gap-to-string print
+end

@@ -26,6 +26,7 @@ typedef enum {
     VAL_BLOCK,      /* Anonymous block (do ... end) */
     VAL_VIEW,       /* UI view */
     VAL_DICT,       /* Dictionary/component reference */
+    VAL_GAPBUF,     /* Gap buffer for text editing */
 } PithValueType;
 
 /* Forward declarations */
@@ -36,6 +37,7 @@ typedef struct PithBlock PithBlock;
 typedef struct PithView PithView;
 typedef struct PithDict PithDict;
 typedef struct PithSlot PithSlot;
+typedef struct PithGapBuffer PithGapBuffer;
 
 /* Anonymous block - stores word indices to execute */
 struct PithBlock {
@@ -55,6 +57,7 @@ struct PithValue {
         PithBlock *block;
         PithView *view;
         PithDict *dict;
+        PithGapBuffer *gapbuf;
     } as;
 };
 
@@ -76,6 +79,17 @@ struct PithMap {
     PithMapEntry *entries;
     size_t length;
     size_t capacity;
+};
+
+/* Gap buffer for efficient text editing
+ * Structure: [pre-gap text][gap][post-gap text]
+ * The cursor is always at the start of the gap.
+ */
+struct PithGapBuffer {
+    char *buffer;       /* The underlying buffer */
+    size_t capacity;    /* Total buffer size */
+    size_t gap_start;   /* Start of gap (cursor position in content) */
+    size_t gap_end;     /* End of gap (exclusive) */
 };
 
 /* ========================================================================
@@ -244,6 +258,7 @@ typedef struct {
 #define PITH_BLOCK(v)       ((PithValue){ .type = VAL_BLOCK, .as.block = (v) })
 #define PITH_VIEW(v)        ((PithValue){ .type = VAL_VIEW, .as.view = (v) })
 #define PITH_DICT(v)        ((PithValue){ .type = VAL_DICT, .as.dict = (v) })
+#define PITH_GAPBUF(v)      ((PithValue){ .type = VAL_GAPBUF, .as.gapbuf = (v) })
 
 /* Type checking */
 #define PITH_IS_NIL(v)      ((v).type == VAL_NIL)
@@ -255,5 +270,6 @@ typedef struct {
 #define PITH_IS_BLOCK(v)    ((v).type == VAL_BLOCK)
 #define PITH_IS_VIEW(v)     ((v).type == VAL_VIEW)
 #define PITH_IS_DICT(v)     ((v).type == VAL_DICT)
+#define PITH_IS_GAPBUF(v)   ((v).type == VAL_GAPBUF)
 
 #endif /* PITH_TYPES_H */

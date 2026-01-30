@@ -125,6 +125,182 @@ PithValue pith_array_get(PithArray *array, size_t index) {
 }
 
 /* ========================================================================
+   GAP BUFFER HELPERS
+   ======================================================================== */
+
+#define GAP_BUFFER_INITIAL_SIZE 64
+#define GAP_BUFFER_MIN_GAP 32
+
+PithGapBuffer* pith_gapbuf_new(void) {
+    PithGapBuffer *gb = malloc(sizeof(PithGapBuffer));
+    gb->capacity = GAP_BUFFER_INITIAL_SIZE;
+    gb->buffer = malloc(gb->capacity);
+    gb->gap_start = 0;
+    gb->gap_end = gb->capacity;
+    return gb;
+}
+
+PithGapBuffer* pith_gapbuf_from_string(const char *str) {
+    size_t len = str ? strlen(str) : 0;
+    PithGapBuffer *gb = malloc(sizeof(PithGapBuffer));
+    gb->capacity = len + GAP_BUFFER_MIN_GAP;
+    gb->buffer = malloc(gb->capacity);
+    /* Place content after the gap, cursor at position 0 */
+    gb->gap_start = 0;
+    gb->gap_end = GAP_BUFFER_MIN_GAP;
+    if (len > 0) {
+        memcpy(gb->buffer + gb->gap_end, str, len);
+    }
+    return gb;
+}
+
+void pith_gapbuf_free(PithGapBuffer *gb) {
+    if (!gb) return;
+    free(gb->buffer);
+    free(gb);
+}
+
+PithGapBuffer* pith_gapbuf_copy(PithGapBuffer *gb) {
+    if (!gb) return pith_gapbuf_new();
+    PithGapBuffer *copy = malloc(sizeof(PithGapBuffer));
+    copy->capacity = gb->capacity;
+    copy->buffer = malloc(copy->capacity);
+    memcpy(copy->buffer, gb->buffer, gb->capacity);
+    copy->gap_start = gb->gap_start;
+    copy->gap_end = gb->gap_end;
+    return copy;
+}
+
+/* Get the content length (excluding the gap) */
+static size_t pith_gapbuf_length(PithGapBuffer *gb) {
+    return gb->capacity - (gb->gap_end - gb->gap_start);
+}
+
+/* Get the gap size */
+static size_t pith_gapbuf_gap_size(PithGapBuffer *gb) {
+    return gb->gap_end - gb->gap_start;
+}
+
+/* Ensure the gap is at least min_size bytes */
+static void pith_gapbuf_expand_gap(PithGapBuffer *gb, size_t min_size) {
+    size_t gap_size = pith_gapbuf_gap_size(gb);
+    if (gap_size >= min_size) return;
+
+    size_t need = min_size - gap_size;
+    size_t new_capacity = gb->capacity + need + GAP_BUFFER_MIN_GAP;
+    char *new_buffer = malloc(new_capacity);
+
+    /* Copy pre-gap content */
+    memcpy(new_buffer, gb->buffer, gb->gap_start);
+    /* Copy post-gap content to new position */
+    size_t post_gap_len = gb->capacity - gb->gap_end;
+    memcpy(new_buffer + new_capacity - post_gap_len,
+           gb->buffer + gb->gap_end, post_gap_len);
+
+    free(gb->buffer);
+    gb->buffer = new_buffer;
+    gb->gap_end = new_capacity - post_gap_len;
+    gb->capacity = new_capacity;
+}
+
+/* Move the gap to position pos in the content */
+static void pith_gapbuf_move_gap(PithGapBuffer *gb, size_t pos) {
+    size_t len = pith_gapbuf_length(gb);
+    if (pos > len) pos = len;
+    if (pos == gb->gap_start) return;
+
+    size_t gap_size = pith_gapbuf_gap_size(gb);
+
+    if (pos < gb->gap_start) {
+        /* Move gap left: shift content right into gap */
+        size_t shift = gb->gap_start - pos;
+        memmove(gb->buffer + gb->gap_end - shift,
+                gb->buffer + pos, shift);
+        gb->gap_start = pos;
+        gb->gap_end -= shift;
+    } else {
+        /* Move gap right: shift content left into gap */
+        size_t shift = pos - gb->gap_start;
+        memmove(gb->buffer + gb->gap_start,
+                gb->buffer + gb->gap_end, shift);
+        gb->gap_start += shift;
+        gb->gap_end += shift;
+    }
+}
+
+/* Insert string at current gap position */
+void pith_gapbuf_insert(PithGapBuffer *gb, const char *str) {
+    if (!str) return;
+    size_t len = strlen(str);
+    if (len == 0) return;
+
+    pith_gapbuf_expand_gap(gb, len);
+    memcpy(gb->buffer + gb->gap_start, str, len);
+    gb->gap_start += len;
+}
+
+/* Delete n characters: positive = forward (after cursor), negative = backward */
+void pith_gapbuf_delete(PithGapBuffer *gb, int n) {
+    if (n > 0) {
+        /* Delete forward: expand gap to the right */
+        size_t post_gap = gb->capacity - gb->gap_end;
+        if ((size_t)n > post_gap) n = post_gap;
+        gb->gap_end += n;
+    } else if (n < 0) {
+        /* Delete backward: expand gap to the left */
+        size_t avail = gb->gap_start;
+        if ((size_t)(-n) > avail) n = -(int)avail;
+        gb->gap_start += n;  /* n is negative, so this decreases gap_start */
+    }
+}
+
+/* Move cursor by delta positions */
+void pith_gapbuf_move(PithGapBuffer *gb, int delta) {
+    size_t len = pith_gapbuf_length(gb);
+    int new_pos = (int)gb->gap_start + delta;
+    if (new_pos < 0) new_pos = 0;
+    if ((size_t)new_pos > len) new_pos = len;
+    pith_gapbuf_move_gap(gb, new_pos);
+}
+
+/* Move cursor to absolute position */
+void pith_gapbuf_goto(PithGapBuffer *gb, size_t pos) {
+    pith_gapbuf_move_gap(gb, pos);
+}
+
+/* Get cursor position */
+size_t pith_gapbuf_cursor(PithGapBuffer *gb) {
+    return gb->gap_start;
+}
+
+/* Get character at position (returns '\0' if out of bounds) */
+char pith_gapbuf_char_at(PithGapBuffer *gb, size_t pos) {
+    size_t len = pith_gapbuf_length(gb);
+    if (pos >= len) return '\0';
+
+    if (pos < gb->gap_start) {
+        return gb->buffer[pos];
+    } else {
+        return gb->buffer[gb->gap_end + (pos - gb->gap_start)];
+    }
+}
+
+/* Convert to string */
+char* pith_gapbuf_to_string(PithGapBuffer *gb) {
+    size_t len = pith_gapbuf_length(gb);
+    char *str = malloc(len + 1);
+
+    /* Copy pre-gap content */
+    memcpy(str, gb->buffer, gb->gap_start);
+    /* Copy post-gap content */
+    memcpy(str + gb->gap_start, gb->buffer + gb->gap_end,
+           gb->capacity - gb->gap_end);
+    str[len] = '\0';
+
+    return str;
+}
+
+/* ========================================================================
    MAP HELPERS
    ======================================================================== */
 
@@ -221,6 +397,9 @@ PithValue pith_value_copy(PithValue value) {
         case VAL_DICT:
             /* These are references, don't deep copy */
             return value;
+
+        case VAL_GAPBUF:
+            return PITH_GAPBUF(pith_gapbuf_copy(value.as.gapbuf));
     }
     return PITH_NIL();
 }
@@ -241,6 +420,9 @@ void pith_value_free(PithValue value) {
             break;
         case VAL_DICT:
             pith_dict_free(value.as.dict);
+            break;
+        case VAL_GAPBUF:
+            pith_gapbuf_free(value.as.gapbuf);
             break;
         default:
             break;
@@ -271,6 +453,8 @@ char* pith_value_to_string(PithValue value) {
             return pith_strdup("[view]");
         case VAL_DICT:
             return pith_strdup(value.as.dict->name ? value.as.dict->name : "[dict]");
+        case VAL_GAPBUF:
+            return pith_gapbuf_to_string(value.as.gapbuf);
     }
     return pith_strdup("?");
 }
@@ -1278,6 +1462,7 @@ static bool builtin_type(PithRuntime *rt) {
         case VAL_VIEW: type_name = "view"; break;
         case VAL_DICT: type_name = "dict"; break;
         case VAL_BLOCK: type_name = "block"; break;
+        case VAL_GAPBUF: type_name = "gapbuf"; break;
         default: type_name = "unknown"; break;
     }
     pith_value_free(a);
@@ -1973,6 +2158,199 @@ static bool builtin_parse_json(PithRuntime *rt) {
     return pith_push(rt, result);
 }
 
+/* Gap Buffer Operations */
+static bool builtin_gap_new(PithRuntime *rt) {
+    return pith_push(rt, PITH_GAPBUF(pith_gapbuf_new()));
+}
+
+static bool builtin_string_to_gap(PithRuntime *rt) {
+    if (!pith_stack_has(rt, 1)) return false;
+    PithValue str = pith_pop(rt);
+
+    if (!PITH_IS_STRING(str)) {
+        pith_error(rt, "string>gap requires a string");
+        pith_value_free(str);
+        return false;
+    }
+
+    PithGapBuffer *gb = pith_gapbuf_from_string(str.as.string);
+    pith_value_free(str);
+    return pith_push(rt, PITH_GAPBUF(gb));
+}
+
+static bool builtin_gap_to_string(PithRuntime *rt) {
+    if (!pith_stack_has(rt, 1)) return false;
+    PithValue gb_val = pith_pop(rt);
+
+    if (!PITH_IS_GAPBUF(gb_val)) {
+        pith_error(rt, "gap>string requires a gap buffer");
+        pith_value_free(gb_val);
+        return false;
+    }
+
+    char *str = pith_gapbuf_to_string(gb_val.as.gapbuf);
+    pith_value_free(gb_val);
+    return pith_push(rt, PITH_STRING(str));
+}
+
+static bool builtin_gap_insert(PithRuntime *rt) {
+    if (!pith_stack_has(rt, 2)) return false;
+    PithValue gb_val = pith_pop(rt);
+    PithValue str = pith_pop(rt);
+
+    if (!PITH_IS_GAPBUF(gb_val)) {
+        pith_error(rt, "gap-insert requires a gap buffer");
+        pith_value_free(gb_val);
+        pith_value_free(str);
+        return false;
+    }
+    if (!PITH_IS_STRING(str)) {
+        pith_error(rt, "gap-insert requires a string to insert");
+        pith_value_free(gb_val);
+        pith_value_free(str);
+        return false;
+    }
+
+    PithGapBuffer *gb = pith_gapbuf_copy(gb_val.as.gapbuf);
+    pith_gapbuf_insert(gb, str.as.string);
+    pith_value_free(gb_val);
+    pith_value_free(str);
+    return pith_push(rt, PITH_GAPBUF(gb));
+}
+
+static bool builtin_gap_delete(PithRuntime *rt) {
+    if (!pith_stack_has(rt, 2)) return false;
+    PithValue gb_val = pith_pop(rt);
+    PithValue n_val = pith_pop(rt);
+
+    if (!PITH_IS_GAPBUF(gb_val)) {
+        pith_error(rt, "gap-delete requires a gap buffer");
+        pith_value_free(gb_val);
+        pith_value_free(n_val);
+        return false;
+    }
+    if (!PITH_IS_NUMBER(n_val)) {
+        pith_error(rt, "gap-delete requires a number");
+        pith_value_free(gb_val);
+        pith_value_free(n_val);
+        return false;
+    }
+
+    PithGapBuffer *gb = pith_gapbuf_copy(gb_val.as.gapbuf);
+    pith_gapbuf_delete(gb, (int)n_val.as.number);
+    pith_value_free(gb_val);
+    return pith_push(rt, PITH_GAPBUF(gb));
+}
+
+static bool builtin_gap_move(PithRuntime *rt) {
+    if (!pith_stack_has(rt, 2)) return false;
+    PithValue gb_val = pith_pop(rt);
+    PithValue n_val = pith_pop(rt);
+
+    if (!PITH_IS_GAPBUF(gb_val)) {
+        pith_error(rt, "gap-move requires a gap buffer");
+        pith_value_free(gb_val);
+        pith_value_free(n_val);
+        return false;
+    }
+    if (!PITH_IS_NUMBER(n_val)) {
+        pith_error(rt, "gap-move requires a number");
+        pith_value_free(gb_val);
+        pith_value_free(n_val);
+        return false;
+    }
+
+    PithGapBuffer *gb = pith_gapbuf_copy(gb_val.as.gapbuf);
+    pith_gapbuf_move(gb, (int)n_val.as.number);
+    pith_value_free(gb_val);
+    return pith_push(rt, PITH_GAPBUF(gb));
+}
+
+static bool builtin_gap_goto(PithRuntime *rt) {
+    if (!pith_stack_has(rt, 2)) return false;
+    PithValue gb_val = pith_pop(rt);
+    PithValue pos_val = pith_pop(rt);
+
+    if (!PITH_IS_GAPBUF(gb_val)) {
+        pith_error(rt, "gap-goto requires a gap buffer");
+        pith_value_free(gb_val);
+        pith_value_free(pos_val);
+        return false;
+    }
+    if (!PITH_IS_NUMBER(pos_val)) {
+        pith_error(rt, "gap-goto requires a number");
+        pith_value_free(gb_val);
+        pith_value_free(pos_val);
+        return false;
+    }
+
+    PithGapBuffer *gb = pith_gapbuf_copy(gb_val.as.gapbuf);
+    pith_gapbuf_goto(gb, (size_t)pos_val.as.number);
+    pith_value_free(gb_val);
+    return pith_push(rt, PITH_GAPBUF(gb));
+}
+
+static bool builtin_gap_cursor(PithRuntime *rt) {
+    if (!pith_stack_has(rt, 1)) return false;
+    PithValue gb_val = pith_pop(rt);
+
+    if (!PITH_IS_GAPBUF(gb_val)) {
+        pith_error(rt, "gap-cursor requires a gap buffer");
+        pith_value_free(gb_val);
+        return false;
+    }
+
+    size_t pos = pith_gapbuf_cursor(gb_val.as.gapbuf);
+    pith_value_free(gb_val);
+    return pith_push(rt, PITH_NUMBER((double)pos));
+}
+
+static bool builtin_gap_length(PithRuntime *rt) {
+    if (!pith_stack_has(rt, 1)) return false;
+    PithValue gb_val = pith_pop(rt);
+
+    if (!PITH_IS_GAPBUF(gb_val)) {
+        pith_error(rt, "gap-length requires a gap buffer");
+        pith_value_free(gb_val);
+        return false;
+    }
+
+    size_t len = pith_gapbuf_length(gb_val.as.gapbuf);
+    pith_value_free(gb_val);
+    return pith_push(rt, PITH_NUMBER((double)len));
+}
+
+static bool builtin_gap_char(PithRuntime *rt) {
+    if (!pith_stack_has(rt, 2)) return false;
+    PithValue gb_val = pith_pop(rt);
+    PithValue pos_val = pith_pop(rt);
+
+    if (!PITH_IS_GAPBUF(gb_val)) {
+        pith_error(rt, "gap-char requires a gap buffer");
+        pith_value_free(gb_val);
+        pith_value_free(pos_val);
+        return false;
+    }
+    if (!PITH_IS_NUMBER(pos_val)) {
+        pith_error(rt, "gap-char requires a position");
+        pith_value_free(gb_val);
+        pith_value_free(pos_val);
+        return false;
+    }
+
+    char c = pith_gapbuf_char_at(gb_val.as.gapbuf, (size_t)pos_val.as.number);
+    pith_value_free(gb_val);
+
+    if (c == '\0') {
+        return pith_push(rt, PITH_NIL());
+    }
+
+    char *str = malloc(2);
+    str[0] = c;
+    str[1] = '\0';
+    return pith_push(rt, PITH_STRING(str));
+}
+
 /* Printing */
 static bool builtin_print(PithRuntime *rt) {
     if (!pith_stack_has(rt, 1)) return false;
@@ -2654,6 +3032,18 @@ static BuiltinEntry builtins[] = {
     {"sanitize", builtin_sanitize},
     {"to-json", builtin_to_json},
     {"parse-json", builtin_parse_json},
+
+    /* Gap Buffer Operations */
+    {"new-gap", builtin_gap_new},
+    {"string-to-gap", builtin_string_to_gap},
+    {"gap-to-string", builtin_gap_to_string},
+    {"gap-insert", builtin_gap_insert},
+    {"gap-delete", builtin_gap_delete},
+    {"gap-move", builtin_gap_move},
+    {"gap-goto", builtin_gap_goto},
+    {"gap-cursor", builtin_gap_cursor},
+    {"gap-length", builtin_gap_length},
+    {"gap-char", builtin_gap_char},
 
     {NULL, NULL}
 };

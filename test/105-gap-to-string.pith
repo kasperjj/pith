@@ -1,0 +1,5 @@
+# expect: hello
+# gap-to-string: ( gapbuf -- str ) converts gap buffer to string
+main:
+    "hello" string-to-gap gap-to-string print
+end

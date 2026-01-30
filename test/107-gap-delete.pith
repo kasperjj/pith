@@ -1,0 +1,8 @@
+# expect: heo
+# gap-delete: ( n gapbuf -- gapbuf ) deletes n chars (positive=forward, negative=backward)
+main:
+    "hello" string-to-gap
+    2 swap gap-goto
+    2 swap gap-delete
+    gap-to-string print
+end

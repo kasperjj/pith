@@ -1,0 +1,10 @@
+# expect: 3
+# expect: 0
+# gap-goto: ( n gapbuf -- gapbuf ) moves cursor to absolute position
+main:
+    "hello" string-to-gap
+    3 swap gap-goto
+    dup gap-cursor print
+    0 swap gap-goto
+    gap-cursor print
+end

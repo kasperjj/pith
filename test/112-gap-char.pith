@@ -1,0 +1,7 @@
+# expect: h
+# expect: o
+# gap-char: ( n gapbuf -- str ) returns character at position n
+main:
+    0 "hello" string-to-gap gap-char print
+    4 "hello" string-to-gap gap-char print
+end

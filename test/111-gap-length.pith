@@ -1,0 +1,7 @@
+# expect: 0
+# expect: 11
+# gap-length: ( gapbuf -- n ) returns content length
+main:
+    new-gap gap-length print
+    "hello world" string-to-gap gap-length print
+end

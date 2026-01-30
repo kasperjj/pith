@@ -1,0 +1,7 @@
+# expect: 0
+# expect: 5
+# gap-cursor: ( gapbuf -- n ) returns cursor position
+main:
+    "hello" string-to-gap gap-cursor print
+    "hello" string-to-gap 5 swap gap-goto gap-cursor print
+end

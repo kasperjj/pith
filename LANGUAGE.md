@@ -302,6 +302,36 @@ main:
 end
 ```
 
+## Gap Buffer ✓
+
+A gap buffer is an efficient data structure for text editing. It stores text with a "gap" that moves with the cursor, making insertions and deletions at the cursor position very fast.
+
+```
+new-gap     # ( -- gapbuf )            # create empty gap buffer
+string-to-gap  # ( str -- gapbuf )        # convert string to gap buffer
+gap-to-string  # ( gapbuf -- str )        # convert gap buffer to string
+gap-insert  # ( str gapbuf -- gapbuf ) # insert string at cursor
+gap-delete  # ( n gapbuf -- gapbuf )   # delete n chars (positive=forward, negative=backward)
+gap-move    # ( n gapbuf -- gapbuf )   # move cursor by n positions
+gap-goto    # ( n gapbuf -- gapbuf )   # move cursor to absolute position
+gap-cursor  # ( gapbuf -- n )          # get cursor position
+gap-length  # ( gapbuf -- n )          # get content length
+gap-char    # ( n gapbuf -- str )      # get character at position n
+```
+
+**Example:**
+```
+main:
+    "Hello World" string-to-gap    # cursor at 0
+    5 swap gap-goto             # cursor at 5
+    1 swap gap-delete           # delete space
+    ", " swap gap-insert        # insert comma and space
+    12 swap gap-goto            # go to end
+    "!" swap gap-insert         # add exclamation
+    gap-to-string print            # prints "Hello, World!"
+end
+```
+
 ## Type Checking ✓
 
 ```

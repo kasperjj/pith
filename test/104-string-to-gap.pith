@@ -1,0 +1,7 @@
+# expect: gapbuf
+# expect: 5
+# string-to-gap: ( str -- gapbuf ) converts string to gap buffer
+main:
+    "hello" string-to-gap type print
+    "hello" string-to-gap gap-length print
+end
