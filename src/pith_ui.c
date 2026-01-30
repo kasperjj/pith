@@ -20,11 +20,19 @@ struct PithUI {
     PithUIConfig config;
     Font font;
     bool font_loaded;
-    
+
+    /* High-DPI scale factor */
+    float scale;
+
+    /* Scaled cell dimensions */
+    int cell_width;
+    int cell_height;
+    int font_size;
+
     /* Window size in cells */
     int cells_wide;
     int cells_high;
-    
+
     /* Input state */
     int last_key;
     bool key_pending;
@@ -210,13 +218,23 @@ PithUI* pith_ui_new(PithUIConfig config) {
     }
 
     /* Initialize raylib */
-    SetConfigFlags(FLAG_WINDOW_RESIZABLE);
+    SetConfigFlags(FLAG_WINDOW_RESIZABLE | FLAG_WINDOW_HIGHDPI);
     InitWindow(config.window_width, config.window_height, config.title);
     SetTargetFPS(60);
-    
-    /* Load font - prefer external file if specified, otherwise use embedded */
+
+    /* Get DPI scale factor for high-DPI displays */
+    Vector2 scale_dpi = GetWindowScaleDPI();
+    ui->scale = scale_dpi.x;  /* Assume uniform scaling */
+
+    /* Use unscaled cell dimensions (Raylib handles coordinate scaling) */
+    ui->cell_width = config.cell_width;
+    ui->cell_height = config.cell_height;
+    /* But load font at scaled size for sharpness on high-DPI displays */
+    ui->font_size = (int)(config.font_size * ui->scale);
+
+    /* Load font at scaled size for crisp rendering */
     if (config.font_path && FileExists(config.font_path)) {
-        ui->font = LoadFontEx(config.font_path, config.font_size, NULL, 0);
+        ui->font = LoadFontEx(config.font_path, ui->font_size, NULL, 0);
         if (ui->font.baseSize > 0) {
             ui->font_loaded = true;
         } else {
@@ -226,7 +244,7 @@ PithUI* pith_ui_new(PithUIConfig config) {
     } else {
         /* Use embedded DepartureMono font */
         ui->font = LoadFontFromMemory(".otf", FONT_DATA, FONT_DATA_SIZE,
-                                       config.font_size, NULL, 0);
+                                       ui->font_size, NULL, 0);
         if (ui->font.baseSize > 0) {
             ui->font_loaded = true;
         } else {
@@ -237,11 +255,11 @@ PithUI* pith_ui_new(PithUIConfig config) {
 
     /* Use point filtering for crisp pixel rendering */
     SetTextureFilter(ui->font.texture, TEXTURE_FILTER_POINT);
-    
-    /* Calculate cell dimensions */
-    ui->cells_wide = config.window_width / config.cell_width;
-    ui->cells_high = config.window_height / config.cell_height;
-    
+
+    /* Calculate cell dimensions using screen size (Raylib scales automatically) */
+    ui->cells_wide = GetScreenWidth() / ui->cell_width;
+    ui->cells_high = GetScreenHeight() / ui->cell_height;
+
     return ui;
 }
 
@@ -268,9 +286,9 @@ void pith_ui_begin_frame(PithUI *ui) {
     /* Update cell count on resize */
     int width = GetScreenWidth();
     int height = GetScreenHeight();
-    ui->cells_wide = width / ui->config.cell_width;
-    ui->cells_high = height / ui->config.cell_height;
-    
+    ui->cells_wide = width / ui->cell_width;
+    ui->cells_high = height / ui->cell_height;
+
     BeginDrawing();
     ClearBackground(rgba_to_color(ui->config.color_bg));
 }
@@ -320,20 +338,20 @@ static int get_gap(PithView *view, PithStyle *inherited) {
 }
 
 /* Render text at cell position */
-static void render_text(PithUI *ui, const char *text, int cell_x, int cell_y, 
+static void render_text(PithUI *ui, const char *text, int cell_x, int cell_y,
                         uint32_t color, bool bold) {
-    int px = cell_x * ui->config.cell_width;
-    int py = cell_y * ui->config.cell_height;
-    
+    int px = cell_x * ui->cell_width;
+    int py = cell_y * ui->cell_height;
+
     Color c = rgba_to_color(color);
-    
-    /* Use raylib text drawing */
-    DrawTextEx(ui->font, text, (Vector2){px, py}, 
+
+    /* Draw at logical font size (font texture is high-res for sharpness) */
+    DrawTextEx(ui->font, text, (Vector2){px, py},
                ui->config.font_size, 1, c);
-    
+
     /* Fake bold by drawing twice with offset */
     if (bold) {
-        DrawTextEx(ui->font, text, (Vector2){px + 1, py}, 
+        DrawTextEx(ui->font, text, (Vector2){px + 1, py},
                    ui->config.font_size, 1, c);
     }
 }
@@ -343,10 +361,10 @@ static void render_border(PithUI *ui, int x, int y, int w, int h,
                           const char *edges, uint32_t color) {
     if (!edges) return;
     
-    int px = x * ui->config.cell_width;
-    int py = y * ui->config.cell_height;
-    int pw = w * ui->config.cell_width;
-    int ph = h * ui->config.cell_height;
+    int px = x * ui->cell_width;
+    int py = y * ui->cell_height;
+    int pw = w * ui->cell_width;
+    int ph = h * ui->cell_height;
     
     Color c = rgba_to_color(color);
     
@@ -364,10 +382,10 @@ static void render_border(PithUI *ui, int x, int y, int w, int h,
 
 /* Render a filled rectangle */
 static void render_rect(PithUI *ui, int x, int y, int w, int h, uint32_t color) {
-    int px = x * ui->config.cell_width;
-    int py = y * ui->config.cell_height;
-    int pw = w * ui->config.cell_width;
-    int ph = h * ui->config.cell_height;
+    int px = x * ui->cell_width;
+    int py = y * ui->cell_height;
+    int pw = w * ui->cell_width;
+    int ph = h * ui->cell_height;
     
     DrawRectangle(px, py, pw, ph, rgba_to_color(color));
 }
@@ -657,18 +675,18 @@ PithEvent pith_ui_poll_event(PithUI *ui) {
     if (IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) {
         event.type = EVENT_CLICK;
         Vector2 pos = GetMousePosition();
-        event.as.click.x = (int)(pos.x / ui->config.cell_width);
-        event.as.click.y = (int)(pos.y / ui->config.cell_height);
+        event.as.click.x = (int)(pos.x / ui->cell_width);
+        event.as.click.y = (int)(pos.y / ui->cell_height);
         event.as.click.button = 0;
         event.as.click.target = NULL; /* TODO: hit testing */
         return event;
     }
-    
+
     if (IsMouseButtonPressed(MOUSE_RIGHT_BUTTON)) {
         event.type = EVENT_CLICK;
         Vector2 pos = GetMousePosition();
-        event.as.click.x = (int)(pos.x / ui->config.cell_width);
-        event.as.click.y = (int)(pos.y / ui->config.cell_height);
+        event.as.click.x = (int)(pos.x / ui->cell_width);
+        event.as.click.y = (int)(pos.y / ui->cell_height);
         event.as.click.button = 1;
         event.as.click.target = NULL;
         return event;
@@ -687,8 +705,8 @@ void pith_ui_get_size(PithUI *ui, int *width, int *height) {
 }
 
 void pith_ui_pixel_to_cell(PithUI *ui, int px, int py, int *cx, int *cy) {
-    *cx = px / ui->config.cell_width;
-    *cy = py / ui->config.cell_height;
+    *cx = px / ui->cell_width;
+    *cy = py / ui->cell_height;
 }
 
 void pith_ui_set_title(PithUI *ui, const char *title) {
