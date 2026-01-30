@@ -1110,6 +1110,71 @@ static bool builtin_lowercase(PithRuntime *rt) {
     return pith_push(rt, PITH_STRING(result));
 }
 
+/* Text Parsing */
+static bool builtin_lines(PithRuntime *rt) {
+    if (!pith_stack_has(rt, 1)) return false;
+    PithValue str = pith_pop(rt);
+    if (!PITH_IS_STRING(str)) {
+        pith_error(rt, "lines requires a string");
+        pith_value_free(str);
+        return false;
+    }
+
+    PithArray *array = pith_array_new();
+    char *copy = pith_strdup(str.as.string);
+    char *line = copy;
+    char *next;
+
+    while ((next = strchr(line, '\n')) != NULL) {
+        *next = '\0';
+        pith_array_push(array, PITH_STRING(pith_strdup(line)));
+        line = next + 1;
+    }
+    // Add the last line (or only line if no newlines)
+    if (*line || array->length == 0) {
+        pith_array_push(array, PITH_STRING(pith_strdup(line)));
+    }
+
+    free(copy);
+    pith_value_free(str);
+    return pith_push(rt, PITH_ARRAY(array));
+}
+
+static bool builtin_words(PithRuntime *rt) {
+    if (!pith_stack_has(rt, 1)) return false;
+    PithValue str = pith_pop(rt);
+    if (!PITH_IS_STRING(str)) {
+        pith_error(rt, "words requires a string");
+        pith_value_free(str);
+        return false;
+    }
+
+    PithArray *array = pith_array_new();
+    char *copy = pith_strdup(str.as.string);
+    char *p = copy;
+
+    while (*p) {
+        // Skip whitespace
+        while (*p && isspace((unsigned char)*p)) p++;
+        if (!*p) break;
+
+        // Find end of word
+        char *start = p;
+        while (*p && !isspace((unsigned char)*p)) p++;
+
+        // Extract word
+        size_t len = p - start;
+        char *word = malloc(len + 1);
+        memcpy(word, start, len);
+        word[len] = '\0';
+        pith_array_push(array, PITH_STRING(word));
+    }
+
+    free(copy);
+    pith_value_free(str);
+    return pith_push(rt, PITH_ARRAY(array));
+}
+
 /* Type Checking */
 static bool builtin_type(PithRuntime *rt) {
     if (!pith_stack_has(rt, 1)) return false;
@@ -1801,6 +1866,8 @@ static BuiltinEntry builtins[] = {
     {"replace", builtin_replace},
     {"uppercase", builtin_uppercase},
     {"lowercase", builtin_lowercase},
+    {"lines", builtin_lines},
+    {"words", builtin_words},
 
     /* Debug */
     {"print", builtin_print},

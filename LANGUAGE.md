@@ -324,9 +324,8 @@ project.path    # ( -- path )
 project.files   # ( -- array )
 ```
 
-## Text Parsing ○
+## Text Parsing ✓
 
-**Not yet implemented:**
 ```
 lines               # ( str -- array )
 words               # ( str -- array )

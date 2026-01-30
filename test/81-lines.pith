@@ -1,0 +1,12 @@
+# expect: 3
+# expect: hello
+# expect: world
+# expect: foo
+# lines: ( str -- array )
+main:
+    "hello
+world
+foo" lines
+    dup length print
+    do print end each
+end
