@@ -227,6 +227,9 @@ PithUI* pith_ui_new(PithUIConfig config) {
             ui->font_loaded = false;
         }
     }
+
+    /* Use point filtering for crisp pixel rendering */
+    SetTextureFilter(ui->font.texture, TEXTURE_FILTER_POINT);
     
     /* Calculate cell dimensions */
     ui->cells_wide = config.window_width / config.cell_width;
