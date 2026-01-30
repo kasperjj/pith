@@ -1,0 +1,13 @@
+# expect: 1
+# expect: 2
+# expect: 3
+# merge: ( new-map map -- new-map )
+main:
+    1 new-map "a" set
+    2 new-map "b" set
+    3 swap "c" set
+    merge
+    dup "a" get print
+    dup "b" get print
+    "c" get print
+end

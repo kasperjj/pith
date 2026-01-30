@@ -1,0 +1,8 @@
+# expect: 42
+# expect: hello
+# set: ( value new-map key -- new-map )
+# get: ( new-map key -- value )
+main:
+    42 new-map "x" set "x" get print
+    "hello" new-map "msg" set "msg" get print
+end

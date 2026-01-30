@@ -277,10 +277,12 @@ any         # ( array block -- bool )
 all         # ( array block -- bool )
 ```
 
-## Maps ○
+## Maps ✓
 
-**Not yet implemented:**
+Maps use the same dictionary structure as components, enabling dynamic code modification at runtime.
+
 ```
+new-map     # ( -- map )           # create empty map
 get         # ( map key -- value )
 set         # ( value map key -- map )
 keys        # ( map -- array )
@@ -288,6 +290,15 @@ values      # ( map -- array )
 has         # ( map key -- bool )
 remove      # ( map key -- map )
 merge       # ( map map -- map )
+```
+
+**Example:**
+```
+main:
+    42 new-map "x" set
+    100 swap "x" set      # update value
+    "x" get print         # prints 100
+end
 ```
 
 ## Type Checking ✓

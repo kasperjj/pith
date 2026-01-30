@@ -353,6 +353,74 @@ PithSlot* pith_dict_lookup(PithDict *dict, const char *name) {
     return NULL;
 }
 
+/* Set a slot's value directly (for map operations) */
+static void pith_dict_set_value(PithDict *dict, const char *name, PithValue value) {
+    /* Check if slot already exists in this dict (not parent) */
+    for (size_t i = 0; i < dict->slot_count; i++) {
+        if (strcmp(dict->slots[i].name, name) == 0) {
+            /* Update existing slot */
+            if (dict->slots[i].is_cached) {
+                pith_value_free(dict->slots[i].cached);
+            }
+            dict->slots[i].is_cached = true;
+            dict->slots[i].cached = value;
+            dict->slots[i].body_start = 0;
+            dict->slots[i].body_end = 0;
+            return;
+        }
+    }
+
+    /* Add new slot */
+    if (dict->slot_count >= dict->slot_capacity) {
+        dict->slot_capacity = dict->slot_capacity ? dict->slot_capacity * 2 : 8;
+        dict->slots = realloc(dict->slots, dict->slot_capacity * sizeof(PithSlot));
+    }
+
+    PithSlot *slot = &dict->slots[dict->slot_count++];
+    slot->name = pith_strdup(name);
+    slot->body_start = 0;
+    slot->body_end = 0;
+    slot->is_cached = true;
+    slot->cached = value;
+}
+
+/* Copy a dict (shallow copy of slots) */
+static PithDict* pith_dict_copy(PithDict *src) {
+    PithDict *copy = pith_dict_new(src->name);
+    copy->parent = src->parent;
+
+    for (size_t i = 0; i < src->slot_count; i++) {
+        PithSlot *s = &src->slots[i];
+        if (s->is_cached) {
+            pith_dict_set_value(copy, s->name, pith_value_copy(s->cached));
+        } else {
+            pith_dict_add_slot(copy, s->name, s->body_start, s->body_end);
+        }
+    }
+
+    return copy;
+}
+
+/* Remove a slot from a dict by name */
+static bool pith_dict_remove_slot(PithDict *dict, const char *name) {
+    for (size_t i = 0; i < dict->slot_count; i++) {
+        if (strcmp(dict->slots[i].name, name) == 0) {
+            /* Free the slot's resources */
+            free(dict->slots[i].name);
+            if (dict->slots[i].is_cached) {
+                pith_value_free(dict->slots[i].cached);
+            }
+            /* Shift remaining slots */
+            for (size_t j = i; j < dict->slot_count - 1; j++) {
+                dict->slots[j] = dict->slots[j + 1];
+            }
+            dict->slot_count--;
+            return true;
+        }
+    }
+    return false;
+}
+
 /* ========================================================================
    VIEW HELPERS
    ======================================================================== */
@@ -1279,6 +1347,188 @@ static bool builtin_to_number(PithRuntime *rt) {
     return pith_push(rt, PITH_NIL());
 }
 
+/* Map Operations (using Dict as the underlying structure) */
+static bool builtin_map_new(PithRuntime *rt) {
+    PithDict *dict = pith_dict_new(NULL);
+    return pith_push(rt, PITH_DICT(dict));
+}
+
+static bool builtin_map_get(PithRuntime *rt) {
+    if (!pith_stack_has(rt, 2)) return false;
+    PithValue key = pith_pop(rt);
+    PithValue map = pith_pop(rt);
+
+    if (map.type != VAL_DICT) {
+        pith_error(rt, "get requires a map");
+        pith_value_free(map);
+        pith_value_free(key);
+        return false;
+    }
+    if (!PITH_IS_STRING(key)) {
+        pith_error(rt, "get requires string key");
+        pith_value_free(map);
+        pith_value_free(key);
+        return false;
+    }
+
+    PithSlot *slot = pith_dict_lookup(map.as.dict, key.as.string);
+    PithValue result = PITH_NIL();
+    if (slot && slot->is_cached) {
+        result = pith_value_copy(slot->cached);
+    }
+
+    pith_value_free(key);
+    /* Don't free the map - it might be referenced elsewhere */
+    return pith_push(rt, result);
+}
+
+static bool builtin_map_set(PithRuntime *rt) {
+    if (!pith_stack_has(rt, 3)) return false;
+    PithValue key = pith_pop(rt);
+    PithValue map = pith_pop(rt);
+    PithValue value = pith_pop(rt);
+
+    if (map.type != VAL_DICT) {
+        pith_error(rt, "set requires a map");
+        pith_value_free(map);
+        pith_value_free(key);
+        pith_value_free(value);
+        return false;
+    }
+    if (!PITH_IS_STRING(key)) {
+        pith_error(rt, "set requires string key");
+        pith_value_free(map);
+        pith_value_free(key);
+        pith_value_free(value);
+        return false;
+    }
+
+    /* Create a copy with the new value */
+    PithDict *new_dict = pith_dict_copy(map.as.dict);
+    pith_dict_set_value(new_dict, key.as.string, value);
+
+    pith_value_free(key);
+    return pith_push(rt, PITH_DICT(new_dict));
+}
+
+static bool builtin_map_keys(PithRuntime *rt) {
+    if (!pith_stack_has(rt, 1)) return false;
+    PithValue map = pith_pop(rt);
+
+    if (map.type != VAL_DICT) {
+        pith_error(rt, "keys requires a map");
+        pith_value_free(map);
+        return false;
+    }
+
+    PithArray *array = pith_array_new();
+    PithDict *dict = map.as.dict;
+    for (size_t i = 0; i < dict->slot_count; i++) {
+        pith_array_push(array, PITH_STRING(pith_strdup(dict->slots[i].name)));
+    }
+
+    return pith_push(rt, PITH_ARRAY(array));
+}
+
+static bool builtin_map_values(PithRuntime *rt) {
+    if (!pith_stack_has(rt, 1)) return false;
+    PithValue map = pith_pop(rt);
+
+    if (map.type != VAL_DICT) {
+        pith_error(rt, "values requires a map");
+        pith_value_free(map);
+        return false;
+    }
+
+    PithArray *array = pith_array_new();
+    PithDict *dict = map.as.dict;
+    for (size_t i = 0; i < dict->slot_count; i++) {
+        if (dict->slots[i].is_cached) {
+            pith_array_push(array, pith_value_copy(dict->slots[i].cached));
+        } else {
+            pith_array_push(array, PITH_NIL());
+        }
+    }
+
+    return pith_push(rt, PITH_ARRAY(array));
+}
+
+static bool builtin_map_has(PithRuntime *rt) {
+    if (!pith_stack_has(rt, 2)) return false;
+    PithValue key = pith_pop(rt);
+    PithValue map = pith_pop(rt);
+
+    if (map.type != VAL_DICT) {
+        pith_error(rt, "has requires a map");
+        pith_value_free(map);
+        pith_value_free(key);
+        return false;
+    }
+    if (!PITH_IS_STRING(key)) {
+        pith_error(rt, "has requires string key");
+        pith_value_free(map);
+        pith_value_free(key);
+        return false;
+    }
+
+    PithSlot *slot = pith_dict_lookup(map.as.dict, key.as.string);
+    bool exists = (slot != NULL);
+
+    pith_value_free(key);
+    return pith_push(rt, PITH_BOOL(exists));
+}
+
+static bool builtin_map_remove(PithRuntime *rt) {
+    if (!pith_stack_has(rt, 2)) return false;
+    PithValue key = pith_pop(rt);
+    PithValue map = pith_pop(rt);
+
+    if (map.type != VAL_DICT) {
+        pith_error(rt, "remove requires a map");
+        pith_value_free(map);
+        pith_value_free(key);
+        return false;
+    }
+    if (!PITH_IS_STRING(key)) {
+        pith_error(rt, "remove requires string key");
+        pith_value_free(map);
+        pith_value_free(key);
+        return false;
+    }
+
+    /* Create a copy without the key */
+    PithDict *new_dict = pith_dict_copy(map.as.dict);
+    pith_dict_remove_slot(new_dict, key.as.string);
+
+    pith_value_free(key);
+    return pith_push(rt, PITH_DICT(new_dict));
+}
+
+static bool builtin_map_merge(PithRuntime *rt) {
+    if (!pith_stack_has(rt, 2)) return false;
+    PithValue map2 = pith_pop(rt);
+    PithValue map1 = pith_pop(rt);
+
+    if (map1.type != VAL_DICT || map2.type != VAL_DICT) {
+        pith_error(rt, "merge requires two maps");
+        pith_value_free(map1);
+        pith_value_free(map2);
+        return false;
+    }
+
+    /* Create a copy of map1, then add all slots from map2 */
+    PithDict *new_dict = pith_dict_copy(map1.as.dict);
+    PithDict *src = map2.as.dict;
+    for (size_t i = 0; i < src->slot_count; i++) {
+        PithSlot *s = &src->slots[i];
+        if (s->is_cached) {
+            pith_dict_set_value(new_dict, s->name, pith_value_copy(s->cached));
+        }
+    }
+
+    return pith_push(rt, PITH_DICT(new_dict));
+}
+
 /* Printing */
 static bool builtin_print(PithRuntime *rt) {
     if (!pith_stack_has(rt, 1)) return false;
@@ -1947,6 +2197,16 @@ static BuiltinEntry builtins[] = {
     /* Type Conversion */
     {"to-string", builtin_to_string},
     {"to-number", builtin_to_number},
+
+    /* Map Operations */
+    {"new-map", builtin_map_new},
+    {"get", builtin_map_get},
+    {"set", builtin_map_set},
+    {"keys", builtin_map_keys},
+    {"values", builtin_map_values},
+    {"has", builtin_map_has},
+    {"remove", builtin_map_remove},
+    {"merge", builtin_map_merge},
 
     {NULL, NULL}
 };

@@ -1,0 +1,7 @@
+# expect: true
+# expect: 0
+# map: ( -- new-map ) creates an empty map
+main:
+    new-map map? print
+    new-map keys length print
+end

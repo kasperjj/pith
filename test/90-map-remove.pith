@@ -1,0 +1,8 @@
+# expect: true
+# expect: false
+# remove: ( new-map key -- new-map )
+main:
+    42 new-map "x" set
+    dup "x" has print
+    "x" remove "x" has print
+end

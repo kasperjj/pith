@@ -1,0 +1,7 @@
+# expect: 100
+# set overwrites existing key
+main:
+    42 new-map "x" set
+    100 swap "x" set
+    "x" get print
+end

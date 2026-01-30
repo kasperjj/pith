@@ -1,0 +1,8 @@
+# expect: true
+# expect: false
+# has: ( new-map key -- bool )
+main:
+    42 new-map "x" set
+    dup "x" has print
+    "y" has print
+end

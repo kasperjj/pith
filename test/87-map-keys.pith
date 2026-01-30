@@ -1,0 +1,11 @@
+# expect: 2
+# expect: a
+# expect: b
+# keys: ( new-map -- array )
+main:
+    1 new-map "a" set
+    2 swap "b" set
+    keys
+    dup length print
+    do print end each
+end
