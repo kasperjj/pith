@@ -1,0 +1,7 @@
+# expect: {"inner":{"val":99}}
+# to-json handles nested maps
+main:
+    99 new-map "val" set
+    new-map "inner" set
+    to-json print
+end

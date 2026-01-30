@@ -585,17 +585,38 @@ static PithToken lexer_next(Lexer *lex, PithRuntime *rt) {
     /* String */
     if (c == '"') {
         lexer_advance(lex); /* consume opening quote */
-        const char *start = lex->current;
-        while (lexer_peek(lex) != '\0' && lexer_peek(lex) != '"') {
-            if (lexer_peek(lex) == '\\') {
-                lexer_advance(lex); /* skip escape */
+        /* First pass: count length needed */
+        const char *scan = lex->current;
+        size_t len = 0;
+        while (*scan && *scan != '"') {
+            if (*scan == '\\' && scan[1]) {
+                scan += 2;
+            } else {
+                scan++;
             }
-            lexer_advance(lex);
+            len++;
         }
-        size_t len = lex->current - start;
+        /* Second pass: copy with escape processing */
         token.text = malloc(len + 1);
-        memcpy(token.text, start, len);
-        token.text[len] = '\0';
+        size_t i = 0;
+        while (lexer_peek(lex) != '\0' && lexer_peek(lex) != '"') {
+            char ch = lexer_peek(lex);
+            lexer_advance(lex);
+            if (ch == '\\' && lexer_peek(lex) != '\0') {
+                char esc = lexer_peek(lex);
+                lexer_advance(lex);
+                switch (esc) {
+                    case 'n': ch = '\n'; break;
+                    case 't': ch = '\t'; break;
+                    case 'r': ch = '\r'; break;
+                    case '\\': ch = '\\'; break;
+                    case '"': ch = '"'; break;
+                    default: ch = esc; break;
+                }
+            }
+            token.text[i++] = ch;
+        }
+        token.text[i] = '\0';
         token.type = TOK_STRING;
         if (lexer_peek(lex) == '"') lexer_advance(lex); /* consume closing quote */
         return token;
@@ -1585,6 +1606,373 @@ static bool builtin_sanitize(PithRuntime *rt) {
     return pith_push(rt, result);
 }
 
+/* JSON Serialization */
+typedef struct {
+    char *buf;
+    size_t len;
+    size_t cap;
+} JsonBuffer;
+
+static void json_buf_init(JsonBuffer *jb) {
+    jb->cap = 256;
+    jb->buf = malloc(jb->cap);
+    jb->buf[0] = '\0';
+    jb->len = 0;
+}
+
+static void json_buf_append(JsonBuffer *jb, const char *str) {
+    size_t slen = strlen(str);
+    while (jb->len + slen + 1 > jb->cap) {
+        jb->cap *= 2;
+        jb->buf = realloc(jb->buf, jb->cap);
+    }
+    memcpy(jb->buf + jb->len, str, slen + 1);
+    jb->len += slen;
+}
+
+static void json_buf_append_char(JsonBuffer *jb, char c) {
+    if (jb->len + 2 > jb->cap) {
+        jb->cap *= 2;
+        jb->buf = realloc(jb->buf, jb->cap);
+    }
+    jb->buf[jb->len++] = c;
+    jb->buf[jb->len] = '\0';
+}
+
+static void json_serialize_value(JsonBuffer *jb, PithValue value);
+
+static void json_serialize_string(JsonBuffer *jb, const char *str) {
+    json_buf_append_char(jb, '"');
+    for (const char *p = str; *p; p++) {
+        switch (*p) {
+            case '"':  json_buf_append(jb, "\\\""); break;
+            case '\\': json_buf_append(jb, "\\\\"); break;
+            case '\b': json_buf_append(jb, "\\b"); break;
+            case '\f': json_buf_append(jb, "\\f"); break;
+            case '\n': json_buf_append(jb, "\\n"); break;
+            case '\r': json_buf_append(jb, "\\r"); break;
+            case '\t': json_buf_append(jb, "\\t"); break;
+            default:
+                if ((unsigned char)*p < 32) {
+                    char esc[8];
+                    snprintf(esc, sizeof(esc), "\\u%04x", (unsigned char)*p);
+                    json_buf_append(jb, esc);
+                } else {
+                    json_buf_append_char(jb, *p);
+                }
+        }
+    }
+    json_buf_append_char(jb, '"');
+}
+
+static void json_serialize_array(JsonBuffer *jb, PithArray *arr) {
+    json_buf_append_char(jb, '[');
+    for (size_t i = 0; i < arr->length; i++) {
+        if (i > 0) json_buf_append_char(jb, ',');
+        json_serialize_value(jb, arr->items[i]);
+    }
+    json_buf_append_char(jb, ']');
+}
+
+static void json_serialize_dict(JsonBuffer *jb, PithDict *dict) {
+    json_buf_append_char(jb, '{');
+    bool first = true;
+    for (size_t i = 0; i < dict->slot_count; i++) {
+        PithSlot *s = &dict->slots[i];
+        if (s->is_cached) {
+            if (!first) json_buf_append_char(jb, ',');
+            first = false;
+            json_serialize_string(jb, s->name);
+            json_buf_append_char(jb, ':');
+            json_serialize_value(jb, s->cached);
+        }
+    }
+    json_buf_append_char(jb, '}');
+}
+
+static void json_serialize_value(JsonBuffer *jb, PithValue value) {
+    char numbuf[64];
+    switch (value.type) {
+        case VAL_NIL:
+            json_buf_append(jb, "null");
+            break;
+        case VAL_BOOL:
+            json_buf_append(jb, value.as.boolean ? "true" : "false");
+            break;
+        case VAL_NUMBER:
+            snprintf(numbuf, sizeof(numbuf), "%g", value.as.number);
+            json_buf_append(jb, numbuf);
+            break;
+        case VAL_STRING:
+            json_serialize_string(jb, value.as.string);
+            break;
+        case VAL_ARRAY:
+            json_serialize_array(jb, value.as.array);
+            break;
+        case VAL_DICT:
+            json_serialize_dict(jb, value.as.dict);
+            break;
+        default:
+            json_buf_append(jb, "null");
+            break;
+    }
+}
+
+static bool builtin_to_json(PithRuntime *rt) {
+    if (!pith_stack_has(rt, 1)) return false;
+    PithValue value = pith_pop(rt);
+
+    if (value.type != VAL_DICT) {
+        pith_error(rt, "to-json requires a map");
+        pith_value_free(value);
+        return false;
+    }
+
+    JsonBuffer jb;
+    json_buf_init(&jb);
+    json_serialize_dict(&jb, value.as.dict);
+
+    pith_value_free(value);
+    return pith_push(rt, PITH_STRING(jb.buf));
+}
+
+/* JSON Parsing */
+typedef struct {
+    const char *src;
+    size_t pos;
+    char error[256];
+} JsonParser;
+
+static void json_skip_ws(JsonParser *jp) {
+    while (jp->src[jp->pos] && isspace((unsigned char)jp->src[jp->pos])) {
+        jp->pos++;
+    }
+}
+
+static PithValue json_parse_value(JsonParser *jp);
+
+static PithValue json_parse_string(JsonParser *jp) {
+    if (jp->src[jp->pos] != '"') {
+        snprintf(jp->error, sizeof(jp->error), "Expected '\"'");
+        return PITH_NIL();
+    }
+    jp->pos++; /* skip opening quote */
+
+    size_t cap = 64;
+    char *buf = malloc(cap);
+    size_t len = 0;
+
+    while (jp->src[jp->pos] && jp->src[jp->pos] != '"') {
+        char c = jp->src[jp->pos++];
+        if (c == '\\' && jp->src[jp->pos]) {
+            char esc = jp->src[jp->pos++];
+            switch (esc) {
+                case '"':  c = '"'; break;
+                case '\\': c = '\\'; break;
+                case '/':  c = '/'; break;
+                case 'b':  c = '\b'; break;
+                case 'f':  c = '\f'; break;
+                case 'n':  c = '\n'; break;
+                case 'r':  c = '\r'; break;
+                case 't':  c = '\t'; break;
+                case 'u':
+                    /* Simple unicode escape - just skip for now */
+                    if (jp->src[jp->pos]) jp->pos++;
+                    if (jp->src[jp->pos]) jp->pos++;
+                    if (jp->src[jp->pos]) jp->pos++;
+                    if (jp->src[jp->pos]) jp->pos++;
+                    c = '?';
+                    break;
+                default: c = esc;
+            }
+        }
+        if (len + 2 > cap) {
+            cap *= 2;
+            buf = realloc(buf, cap);
+        }
+        buf[len++] = c;
+    }
+    buf[len] = '\0';
+
+    if (jp->src[jp->pos] == '"') {
+        jp->pos++; /* skip closing quote */
+    }
+
+    return PITH_STRING(buf);
+}
+
+static PithValue json_parse_number(JsonParser *jp) {
+    const char *start = jp->src + jp->pos;
+    char *end;
+    double num = strtod(start, &end);
+    jp->pos += (end - start);
+    return PITH_NUMBER(num);
+}
+
+static PithValue json_parse_array(JsonParser *jp) {
+    jp->pos++; /* skip '[' */
+    json_skip_ws(jp);
+
+    PithArray *arr = pith_array_new();
+
+    if (jp->src[jp->pos] == ']') {
+        jp->pos++;
+        return PITH_ARRAY(arr);
+    }
+
+    while (1) {
+        json_skip_ws(jp);
+        PithValue item = json_parse_value(jp);
+        if (jp->error[0]) {
+            pith_array_free(arr);
+            return PITH_NIL();
+        }
+        pith_array_push(arr, item);
+
+        json_skip_ws(jp);
+        if (jp->src[jp->pos] == ']') {
+            jp->pos++;
+            break;
+        }
+        if (jp->src[jp->pos] == ',') {
+            jp->pos++;
+        } else {
+            snprintf(jp->error, sizeof(jp->error), "Expected ',' or ']'");
+            pith_array_free(arr);
+            return PITH_NIL();
+        }
+    }
+
+    return PITH_ARRAY(arr);
+}
+
+static PithValue json_parse_object(JsonParser *jp) {
+    jp->pos++; /* skip '{' */
+    json_skip_ws(jp);
+
+    PithDict *dict = pith_dict_new(NULL);
+
+    if (jp->src[jp->pos] == '}') {
+        jp->pos++;
+        return PITH_DICT(dict);
+    }
+
+    while (1) {
+        json_skip_ws(jp);
+
+        /* Parse key */
+        if (jp->src[jp->pos] != '"') {
+            snprintf(jp->error, sizeof(jp->error), "Expected string key");
+            pith_dict_free(dict);
+            return PITH_NIL();
+        }
+        PithValue key = json_parse_string(jp);
+        if (jp->error[0]) {
+            pith_dict_free(dict);
+            return PITH_NIL();
+        }
+
+        json_skip_ws(jp);
+        if (jp->src[jp->pos] != ':') {
+            snprintf(jp->error, sizeof(jp->error), "Expected ':'");
+            pith_value_free(key);
+            pith_dict_free(dict);
+            return PITH_NIL();
+        }
+        jp->pos++;
+
+        json_skip_ws(jp);
+        PithValue val = json_parse_value(jp);
+        if (jp->error[0]) {
+            pith_value_free(key);
+            pith_dict_free(dict);
+            return PITH_NIL();
+        }
+
+        pith_dict_set_value(dict, key.as.string, val);
+        pith_value_free(key);
+
+        json_skip_ws(jp);
+        if (jp->src[jp->pos] == '}') {
+            jp->pos++;
+            break;
+        }
+        if (jp->src[jp->pos] == ',') {
+            jp->pos++;
+        } else {
+            snprintf(jp->error, sizeof(jp->error), "Expected ',' or '}'");
+            pith_dict_free(dict);
+            return PITH_NIL();
+        }
+    }
+
+    return PITH_DICT(dict);
+}
+
+static PithValue json_parse_value(JsonParser *jp) {
+    json_skip_ws(jp);
+
+    char c = jp->src[jp->pos];
+
+    if (c == '"') {
+        return json_parse_string(jp);
+    }
+    if (c == '[') {
+        return json_parse_array(jp);
+    }
+    if (c == '{') {
+        return json_parse_object(jp);
+    }
+    if (c == '-' || (c >= '0' && c <= '9')) {
+        return json_parse_number(jp);
+    }
+    if (strncmp(jp->src + jp->pos, "true", 4) == 0) {
+        jp->pos += 4;
+        return PITH_BOOL(true);
+    }
+    if (strncmp(jp->src + jp->pos, "false", 5) == 0) {
+        jp->pos += 5;
+        return PITH_BOOL(false);
+    }
+    if (strncmp(jp->src + jp->pos, "null", 4) == 0) {
+        jp->pos += 4;
+        return PITH_NIL();
+    }
+
+    snprintf(jp->error, sizeof(jp->error), "Unexpected character '%c'", c);
+    return PITH_NIL();
+}
+
+static bool builtin_parse_json(PithRuntime *rt) {
+    if (!pith_stack_has(rt, 1)) return false;
+    PithValue str = pith_pop(rt);
+
+    if (!PITH_IS_STRING(str)) {
+        pith_error(rt, "parse-json requires a string");
+        pith_value_free(str);
+        return false;
+    }
+
+    JsonParser jp = { .src = str.as.string, .pos = 0, .error = {0} };
+    json_skip_ws(&jp);
+
+    if (jp.src[jp.pos] != '{') {
+        pith_error(rt, "parse-json requires JSON object at root");
+        pith_value_free(str);
+        return false;
+    }
+
+    PithValue result = json_parse_object(&jp);
+    pith_value_free(str);
+
+    if (jp.error[0]) {
+        pith_error(rt, "JSON parse error: %s", jp.error);
+        return false;
+    }
+
+    return pith_push(rt, result);
+}
+
 /* Printing */
 static bool builtin_print(PithRuntime *rt) {
     if (!pith_stack_has(rt, 1)) return false;
@@ -2264,6 +2652,8 @@ static BuiltinEntry builtins[] = {
     {"remove", builtin_map_remove},
     {"merge", builtin_map_merge},
     {"sanitize", builtin_sanitize},
+    {"to-json", builtin_to_json},
+    {"parse-json", builtin_parse_json},
 
     {NULL, NULL}
 };

@@ -1,0 +1,6 @@
+# expect: 99
+# parse-json handles nested objects
+main:
+    "{\"inner\": {\"val\": 99}}" parse-json
+    "inner" get "val" get print
+end

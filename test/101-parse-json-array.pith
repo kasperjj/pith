@@ -1,0 +1,8 @@
+# expect: 1
+# expect: 2
+# expect: 3
+# parse-json handles arrays
+main:
+    "{\"nums\": [1, 2, 3]}" parse-json
+    "nums" get do print end each
+end

@@ -1,0 +1,10 @@
+# expect: 42
+# expect: test
+# JSON roundtrip: map -> json -> map
+main:
+    42 new-map "x" set
+    "test" swap "y" set
+    to-json parse-json
+    dup "x" get print
+    "y" get print
+end

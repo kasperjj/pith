@@ -1,0 +1,8 @@
+# expect: 42
+# expect: hello
+# parse-json: ( str -- map )
+main:
+    "{\"x\": 42, \"msg\": \"hello\"}" parse-json
+    dup "x" get print
+    "msg" get print
+end

@@ -314,19 +314,16 @@ bool?       # ( a -- bool )
 nil?        # ( a -- bool )
 ```
 
-## Conversion
+## Conversion ✓
 
-**Implemented:**
 ```
 to-string   # ( a -- str )
 to-number   # ( str -- n )
+to-json     # ( map -- str )      # map to JSON object string
+parse-json  # ( str -- map )      # JSON object string to map
 ```
 
-**Not yet implemented:**
-```
-parse-json  # ( str -- value )
-to-json     # ( value -- str )
-```
+**Note:** `to-json` and `parse-json` require a JSON object at the root level (not arrays or primitives).
 
 ## File Operations ○
 

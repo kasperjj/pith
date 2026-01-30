@@ -1,0 +1,7 @@
+# expect: {"x":42,"msg":"hello"}
+# to-json: ( map -- str )
+main:
+    42 new-map "x" set
+    "hello" swap "msg" set
+    to-json print
+end
