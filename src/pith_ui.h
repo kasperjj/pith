@@ -21,18 +21,20 @@ typedef struct {
     int window_width;       /* Initial window width in pixels */
     int window_height;      /* Initial window height in pixels */
     const char *title;      /* Window title */
-    
+
     int cell_width;         /* Width of a cell in pixels */
     int cell_height;        /* Height of a cell in pixels */
-    
+
     const char *font_path;  /* Path to monospace font (or NULL for default) */
     int font_size;          /* Font size in pixels */
-    
+
     /* Default colors (RGBA) */
     uint32_t color_fg;
     uint32_t color_bg;
     uint32_t color_border;
     uint32_t color_selection;
+
+    bool verbose;           /* Enable verbose raylib logging */
 } PithUIConfig;
 
 /* Default configuration */

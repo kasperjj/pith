@@ -50,6 +50,8 @@ PithUIConfig pith_ui_default_config(void) {
         .color_bg = PITH_COLOR_BLACK,
         .color_border = PITH_COLOR_GRAY,
         .color_selection = PITH_COLOR_BLUE,
+
+        .verbose = false,
     };
 }
 
@@ -201,7 +203,12 @@ PithUI* pith_ui_new(PithUIConfig config) {
     PithUI *ui = malloc(sizeof(PithUI));
     memset(ui, 0, sizeof(PithUI));
     ui->config = config;
-    
+
+    /* Set raylib log level - suppress unless verbose */
+    if (!config.verbose) {
+        SetTraceLogLevel(LOG_WARNING);
+    }
+
     /* Initialize raylib */
     SetConfigFlags(FLAG_WINDOW_RESIZABLE);
     InitWindow(config.window_width, config.window_height, config.title);

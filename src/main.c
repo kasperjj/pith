@@ -225,6 +225,7 @@ int main(int argc, char *argv[]) {
     if (view) {
         /* Create UI window */
         PithUIConfig ui_config = pith_ui_default_config();
+        ui_config.verbose = g_debug;
 
         /* Build window title */
         char title[256];
