@@ -302,12 +302,16 @@ bool?       # ( a -- bool )
 nil?        # ( a -- bool )
 ```
 
-## Conversion ○
+## Conversion
 
-**Not yet implemented:**
+**Implemented:**
 ```
 to-string   # ( a -- str )
 to-number   # ( str -- n )
+```
+
+**Not yet implemented:**
+```
 parse-json  # ( str -- value )
 to-json     # ( value -- str )
 ```

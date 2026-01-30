@@ -1,0 +1,15 @@
+# expect: 42
+# expect: 3.14
+# expect: -10
+# expect: 1
+# expect: 0
+# expect: nil
+# to-number: ( a -- n )
+main:
+    "42" to-number print
+    "3.14" to-number print
+    "-10" to-number print
+    true to-number print
+    false to-number print
+    "hello" to-number print
+end

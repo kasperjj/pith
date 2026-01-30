@@ -1243,6 +1243,42 @@ static bool builtin_is_nil(PithRuntime *rt) {
     return pith_push(rt, PITH_BOOL(result));
 }
 
+/* Type Conversion */
+static bool builtin_to_string(PithRuntime *rt) {
+    if (!pith_stack_has(rt, 1)) return false;
+    PithValue a = pith_pop(rt);
+    char *str = pith_value_to_string(a);
+    pith_value_free(a);
+    return pith_push(rt, PITH_STRING(str));
+}
+
+static bool builtin_to_number(PithRuntime *rt) {
+    if (!pith_stack_has(rt, 1)) return false;
+    PithValue a = pith_pop(rt);
+
+    if (PITH_IS_NUMBER(a)) {
+        return pith_push(rt, a);
+    }
+
+    if (PITH_IS_STRING(a)) {
+        char *endptr;
+        double num = strtod(a.as.string, &endptr);
+        bool valid = (*endptr == '\0');
+        pith_value_free(a);
+        if (!valid) {
+            return pith_push(rt, PITH_NIL());
+        }
+        return pith_push(rt, PITH_NUMBER(num));
+    }
+
+    if (PITH_IS_BOOL(a)) {
+        return pith_push(rt, PITH_NUMBER(a.as.boolean ? 1.0 : 0.0));
+    }
+
+    pith_value_free(a);
+    return pith_push(rt, PITH_NIL());
+}
+
 /* Printing */
 static bool builtin_print(PithRuntime *rt) {
     if (!pith_stack_has(rt, 1)) return false;
@@ -1907,6 +1943,10 @@ static BuiltinEntry builtins[] = {
     {"map?", builtin_is_map},
     {"bool?", builtin_is_bool},
     {"nil?", builtin_is_nil},
+
+    /* Type Conversion */
+    {"to-string", builtin_to_string},
+    {"to-number", builtin_to_number},
 
     {NULL, NULL}
 };

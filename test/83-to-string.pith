@@ -1,0 +1,11 @@
+# expect: 42
+# expect: true
+# expect: hello
+# expect: nil
+# to-string: ( a -- str )
+main:
+    42 to-string print
+    true to-string print
+    "hello" to-string print
+    nil to-string print
+end
