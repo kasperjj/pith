@@ -396,13 +396,35 @@ Multiple spacers share the available space equally.
 These are not words but slots that cascade through the parent chain:
 
 ```
-color: "white"          # text color (hex string like "#RRGGBB")
+color: "white"          # text color
 background: "black"     # background color
 bold: false
 border: "right"         # or "all", "top", "left right", etc.
 padding: 1              # cells
 gap: 1                  # cells between children
 ```
+
+### Colors
+
+Colors can be specified as:
+
+- **Hex values:** `"#RRGGBB"` or `"#RRGGBBAA"`
+- **Basic names:** `"black"`, `"white"`
+- **Open Color palette:** All colors from [Open Color](https://yeun.github.io/open-color/)
+
+**Open Color names** support base names (defaults to shade 6) or specific shades (0-9):
+
+```
+color: "red"            # red shade 6
+color: "red 2"          # red shade 2 (lighter)
+color: "red 9"          # red shade 9 (darker)
+background: "gray 0"    # lightest gray
+background: "blue 4"    # medium blue
+```
+
+**Available color families:** gray, red, pink, grape, violet, indigo, blue, cyan, teal, green, lime, yellow, orange
+
+Each family has 10 shades (0-9), from lightest to darkest.
 
 ## Reactivity ○
 

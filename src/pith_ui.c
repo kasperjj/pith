@@ -65,21 +65,105 @@ static Color rgba_to_color(uint32_t rgba) {
     };
 }
 
+/* Open Color palette - https://yeun.github.io/open-color/ */
+typedef struct {
+    const char *name;
+    uint32_t shades[10];  /* shades 0-9 */
+} OpenColorFamily;
+
+static const OpenColorFamily open_colors[] = {
+    {"gray", {
+        0xf8f9faff, 0xf1f3f5ff, 0xe9ecefff, 0xdee2e6ff, 0xced4daff,
+        0xadb5bdff, 0x868e96ff, 0x495057ff, 0x343a40ff, 0x212529ff
+    }},
+    {"red", {
+        0xfff5f5ff, 0xffe3e3ff, 0xffc9c9ff, 0xffa8a8ff, 0xff8787ff,
+        0xff6b6bff, 0xfa5252ff, 0xf03e3eff, 0xe03131ff, 0xc92a2aff
+    }},
+    {"pink", {
+        0xfff0f6ff, 0xffdeebff, 0xfcc2d7ff, 0xfaa2c1ff, 0xf783acff,
+        0xf06595ff, 0xe64980ff, 0xd6336cff, 0xc2255cff, 0xa61e4dff
+    }},
+    {"grape", {
+        0xf8f0fcff, 0xf3d9faff, 0xeebefaff, 0xe599f7ff, 0xda77f2ff,
+        0xcc5de8ff, 0xbe4bdbff, 0xae3ec9ff, 0x9c36b5ff, 0x862e9cff
+    }},
+    {"violet", {
+        0xf3f0ffff, 0xe5dbffff, 0xd0bfffff, 0xb197fcff, 0x9775faff,
+        0x845ef7ff, 0x7950f2ff, 0x7048e8ff, 0x6741d9ff, 0x5f3dc4ff
+    }},
+    {"indigo", {
+        0xedf2ffff, 0xdbe4ffff, 0xbac8ffff, 0x91a7ffff, 0x748ffcff,
+        0x5c7cfaff, 0x4c6ef5ff, 0x4263ebff, 0x3b5bdbff, 0x364fc7ff
+    }},
+    {"blue", {
+        0xe7f5ffff, 0xd0ebffff, 0xa5d8ffff, 0x74c0fcff, 0x4dabf7ff,
+        0x339af0ff, 0x228be6ff, 0x1c7ed6ff, 0x1971c2ff, 0x1864abff
+    }},
+    {"cyan", {
+        0xe3fafcff, 0xc5f6faff, 0x99e9f2ff, 0x66d9e8ff, 0x3bc9dbff,
+        0x22b8cfff, 0x15aabfff, 0x1098adff, 0x0c8599ff, 0x0b7285ff
+    }},
+    {"teal", {
+        0xe6fcf5ff, 0xc3fae8ff, 0x96f2d7ff, 0x63e6beff, 0x38d9a9ff,
+        0x20c997ff, 0x12b886ff, 0x0ca678ff, 0x099268ff, 0x087f5bff
+    }},
+    {"green", {
+        0xebfbeeff, 0xd3f9d8ff, 0xb2f2bbff, 0x8ce99aff, 0x69db7cff,
+        0x51cf66ff, 0x40c057ff, 0x37b24dff, 0x2f9e44ff, 0x2b8a3eff
+    }},
+    {"lime", {
+        0xf4fce3ff, 0xe9fac8ff, 0xd8f5a2ff, 0xc0eb75ff, 0xa9e34bff,
+        0x94d82dff, 0x82c91eff, 0x74b816ff, 0x66a80fff, 0x5c940dff
+    }},
+    {"yellow", {
+        0xfff9dbff, 0xfff3bfff, 0xffec99ff, 0xffe066ff, 0xffd43bff,
+        0xfcc419ff, 0xfab005ff, 0xf59f00ff, 0xf08c00ff, 0xe67700ff
+    }},
+    {"orange", {
+        0xfff4e6ff, 0xffe8ccff, 0xffd8a8ff, 0xffc078ff, 0xffa94dff,
+        0xff922bff, 0xfd7e14ff, 0xf76707ff, 0xe8590cff, 0xd9480fff
+    }},
+    {NULL, {0}}
+};
+
+static uint32_t lookup_open_color(const char *str) {
+    /* Check for "colorname N" format (e.g., "red 5") */
+    char name[32];
+    int shade = -1;
+
+    /* Try to parse "name N" format */
+    if (sscanf(str, "%31s %d", name, &shade) == 2) {
+        if (shade < 0 || shade > 9) shade = 6;
+    } else {
+        /* Just a name, default to shade 6 */
+        strncpy(name, str, sizeof(name) - 1);
+        name[sizeof(name) - 1] = '\0';
+        shade = 6;
+    }
+
+    /* Convert to lowercase for comparison */
+    for (char *p = name; *p; p++) {
+        if (*p >= 'A' && *p <= 'Z') *p += 32;
+    }
+
+    /* Look up in Open Color palette */
+    for (int i = 0; open_colors[i].name != NULL; i++) {
+        if (strcmp(name, open_colors[i].name) == 0) {
+            return open_colors[i].shades[shade];
+        }
+    }
+
+    return 0; /* Not found */
+}
+
 uint32_t pith_color_parse(const char *str) {
     if (!str) return PITH_COLOR_WHITE;
-    
-    /* Named colors */
+
+    /* Special colors */
     if (strcmp(str, "black") == 0) return PITH_COLOR_BLACK;
     if (strcmp(str, "white") == 0) return PITH_COLOR_WHITE;
-    if (strcmp(str, "red") == 0) return PITH_COLOR_RED;
-    if (strcmp(str, "green") == 0) return PITH_COLOR_GREEN;
-    if (strcmp(str, "blue") == 0) return PITH_COLOR_BLUE;
-    if (strcmp(str, "yellow") == 0) return PITH_COLOR_YELLOW;
-    if (strcmp(str, "cyan") == 0) return PITH_COLOR_CYAN;
-    if (strcmp(str, "magenta") == 0) return PITH_COLOR_MAGENTA;
-    if (strcmp(str, "gray") == 0) return PITH_COLOR_GRAY;
-    if (strcmp(str, "darkgray") == 0) return PITH_COLOR_DARKGRAY;
-    
+
     /* Hex color #RRGGBB or #RRGGBBAA */
     if (str[0] == '#') {
         unsigned int r, g, b, a = 255;
@@ -90,7 +174,21 @@ uint32_t pith_color_parse(const char *str) {
         }
         return (r << 24) | (g << 16) | (b << 8) | a;
     }
-    
+
+    /* Open Color palette lookup */
+    uint32_t oc = lookup_open_color(str);
+    if (oc != 0) return oc;
+
+    /* Legacy named colors (map to Open Color equivalents) */
+    if (strcmp(str, "red") == 0) return lookup_open_color("red 6");
+    if (strcmp(str, "green") == 0) return lookup_open_color("green 6");
+    if (strcmp(str, "blue") == 0) return lookup_open_color("blue 6");
+    if (strcmp(str, "yellow") == 0) return lookup_open_color("yellow 6");
+    if (strcmp(str, "cyan") == 0) return lookup_open_color("cyan 6");
+    if (strcmp(str, "magenta") == 0) return lookup_open_color("grape 6");
+    if (strcmp(str, "gray") == 0) return lookup_open_color("gray 6");
+    if (strcmp(str, "darkgray") == 0) return lookup_open_color("gray 8");
+
     return PITH_COLOR_WHITE;
 }
 
