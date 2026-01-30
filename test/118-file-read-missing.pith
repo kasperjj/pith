@@ -1,0 +1,5 @@
+# expect: true
+# file-read returns nil for missing files
+main:
+    "/nonexistent/path/file.txt" file-read nil? print
+end

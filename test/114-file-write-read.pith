@@ -1,0 +1,6 @@
+# expect: hello from pith
+# file-write and file-read test
+main:
+    "hello from pith" "/tmp/pith-test-114.txt" file-write
+    "/tmp/pith-test-114.txt" file-read print
+end

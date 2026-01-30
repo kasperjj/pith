@@ -1,0 +1,8 @@
+# expect: line1
+# expect: line2
+# file-append test
+main:
+    "line1\n" "/tmp/pith-test-117.txt" file-write
+    "line2\n" "/tmp/pith-test-117.txt" file-append
+    "/tmp/pith-test-117.txt" file-read print
+end

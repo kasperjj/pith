@@ -1,0 +1,5 @@
+# expect: true
+# dir-list test - checks that src directory contains pith_runtime.c
+main:
+    "src" dir-list "pith_runtime.c" contains print
+end

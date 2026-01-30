@@ -1,0 +1,7 @@
+# expect: true
+# expect: false
+# file-exists test
+main:
+    "test/115-file-exists.pith" file-exists print
+    "/nonexistent/path/file.txt" file-exists print
+end

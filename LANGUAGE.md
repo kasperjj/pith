@@ -355,14 +355,28 @@ parse-json  # ( str -- map )      # JSON object string to map
 
 **Note:** `to-json` and `parse-json` require a JSON object at the root level (not arrays or primitives).
 
-## File Operations ○
+## File Operations ✓
+
+```
+file-read       # ( path -- contents )   # returns nil if file doesn't exist
+file-write      # ( contents path -- )   # creates or overwrites file
+file-append     # ( contents path -- )   # appends to file
+file-exists     # ( path -- bool )
+dir-list        # ( path -- array )      # returns nil if directory doesn't exist
+```
+
+**Example:**
+```
+main:
+    "Hello, World!" "/tmp/test.txt" file-write
+    "/tmp/test.txt" file-read print       # prints "Hello, World!"
+    "/tmp/test.txt" file-exists print     # prints "true"
+    "src" dir-list length print           # prints number of files in src/
+end
+```
 
 **Not yet implemented:**
 ```
-file-read       # ( path -- contents )
-file-write      # ( contents path -- )
-file-exists     # ( path -- bool )
-dir-list        # ( path -- array )
 project.path    # ( -- path )
 project.files   # ( -- array )
 ```

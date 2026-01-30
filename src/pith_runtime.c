@@ -9,6 +9,8 @@
 #include <stdarg.h>
 #include <ctype.h>
 #include <math.h>
+#include <dirent.h>
+#include <sys/stat.h>
 
 /* ========================================================================
    MEMORY HELPERS
@@ -2351,6 +2353,171 @@ static bool builtin_gap_char(PithRuntime *rt) {
     return pith_push(rt, PITH_STRING(str));
 }
 
+/* ========================================================================
+   FILE SYSTEM OPERATIONS
+   ======================================================================== */
+
+/* file-read: ( path -- contents ) */
+static bool builtin_file_read(PithRuntime *rt) {
+    if (!pith_stack_has(rt, 1)) return false;
+    PithValue path = pith_pop(rt);
+
+    if (!PITH_IS_STRING(path)) {
+        pith_error(rt, "file-read requires a string path");
+        pith_value_free(path);
+        return false;
+    }
+
+    FILE *f = fopen(path.as.string, "rb");
+    if (!f) {
+        pith_value_free(path);
+        return pith_push(rt, PITH_NIL());
+    }
+
+    fseek(f, 0, SEEK_END);
+    long size = ftell(f);
+    fseek(f, 0, SEEK_SET);
+
+    char *contents = malloc(size + 1);
+    if (!contents) {
+        fclose(f);
+        pith_value_free(path);
+        pith_error(rt, "file-read: out of memory");
+        return false;
+    }
+
+    size_t read = fread(contents, 1, size, f);
+    contents[read] = '\0';
+    fclose(f);
+    pith_value_free(path);
+
+    return pith_push(rt, PITH_STRING(contents));
+}
+
+/* file-write: ( contents path -- ) */
+static bool builtin_file_write(PithRuntime *rt) {
+    if (!pith_stack_has(rt, 2)) return false;
+    PithValue path = pith_pop(rt);
+    PithValue contents = pith_pop(rt);
+
+    if (!PITH_IS_STRING(path)) {
+        pith_error(rt, "file-write requires a string path");
+        pith_value_free(path);
+        pith_value_free(contents);
+        return false;
+    }
+    if (!PITH_IS_STRING(contents)) {
+        pith_error(rt, "file-write requires string contents");
+        pith_value_free(path);
+        pith_value_free(contents);
+        return false;
+    }
+
+    FILE *f = fopen(path.as.string, "wb");
+    if (!f) {
+        pith_error(rt, "file-write: could not open file for writing");
+        pith_value_free(path);
+        pith_value_free(contents);
+        return false;
+    }
+
+    size_t len = strlen(contents.as.string);
+    fwrite(contents.as.string, 1, len, f);
+    fclose(f);
+
+    pith_value_free(path);
+    pith_value_free(contents);
+    return true;
+}
+
+/* file-exists: ( path -- bool ) */
+static bool builtin_file_exists(PithRuntime *rt) {
+    if (!pith_stack_has(rt, 1)) return false;
+    PithValue path = pith_pop(rt);
+
+    if (!PITH_IS_STRING(path)) {
+        pith_error(rt, "file-exists requires a string path");
+        pith_value_free(path);
+        return false;
+    }
+
+    struct stat st;
+    bool exists = (stat(path.as.string, &st) == 0);
+    pith_value_free(path);
+
+    return pith_push(rt, PITH_BOOL(exists));
+}
+
+/* dir-list: ( path -- array ) */
+static bool builtin_dir_list(PithRuntime *rt) {
+    if (!pith_stack_has(rt, 1)) return false;
+    PithValue path = pith_pop(rt);
+
+    if (!PITH_IS_STRING(path)) {
+        pith_error(rt, "dir-list requires a string path");
+        pith_value_free(path);
+        return false;
+    }
+
+    DIR *dir = opendir(path.as.string);
+    if (!dir) {
+        pith_value_free(path);
+        return pith_push(rt, PITH_NIL());
+    }
+
+    PithArray *arr = pith_array_new();
+    struct dirent *entry;
+
+    while ((entry = readdir(dir)) != NULL) {
+        /* Skip . and .. */
+        if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0) {
+            continue;
+        }
+        pith_array_push(arr, PITH_STRING(pith_strdup(entry->d_name)));
+    }
+
+    closedir(dir);
+    pith_value_free(path);
+
+    return pith_push(rt, PITH_ARRAY(arr));
+}
+
+/* file-append: ( contents path -- ) */
+static bool builtin_file_append(PithRuntime *rt) {
+    if (!pith_stack_has(rt, 2)) return false;
+    PithValue path = pith_pop(rt);
+    PithValue contents = pith_pop(rt);
+
+    if (!PITH_IS_STRING(path)) {
+        pith_error(rt, "file-append requires a string path");
+        pith_value_free(path);
+        pith_value_free(contents);
+        return false;
+    }
+    if (!PITH_IS_STRING(contents)) {
+        pith_error(rt, "file-append requires string contents");
+        pith_value_free(path);
+        pith_value_free(contents);
+        return false;
+    }
+
+    FILE *f = fopen(path.as.string, "ab");
+    if (!f) {
+        pith_error(rt, "file-append: could not open file for appending");
+        pith_value_free(path);
+        pith_value_free(contents);
+        return false;
+    }
+
+    size_t len = strlen(contents.as.string);
+    fwrite(contents.as.string, 1, len, f);
+    fclose(f);
+
+    pith_value_free(path);
+    pith_value_free(contents);
+    return true;
+}
+
 /* Printing */
 static bool builtin_print(PithRuntime *rt) {
     if (!pith_stack_has(rt, 1)) return false;
@@ -3044,6 +3211,13 @@ static BuiltinEntry builtins[] = {
     {"gap-cursor", builtin_gap_cursor},
     {"gap-length", builtin_gap_length},
     {"gap-char", builtin_gap_char},
+
+    /* File system */
+    {"file-read", builtin_file_read},
+    {"file-write", builtin_file_write},
+    {"file-exists", builtin_file_exists},
+    {"dir-list", builtin_dir_list},
+    {"file-append", builtin_file_append},
 
     {NULL, NULL}
 };
