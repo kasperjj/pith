@@ -1,0 +1,13 @@
+# expect: string
+# expect: number
+# expect: array
+# expect: bool
+# expect: nil
+# type: ( a -- str )
+main:
+    "hello" type print
+    42 type print
+    [1, 2, 3] type print
+    true type print
+    nil type print
+end

@@ -1,0 +1,11 @@
+# expect: true
+# expect: true
+# expect: false
+# expect: false
+# number?: ( a -- bool )
+main:
+    42 number? print
+    3.14 number? print
+    "hello" number? print
+    [1, 2] number? print
+end

@@ -1110,6 +1110,74 @@ static bool builtin_lowercase(PithRuntime *rt) {
     return pith_push(rt, PITH_STRING(result));
 }
 
+/* Type Checking */
+static bool builtin_type(PithRuntime *rt) {
+    if (!pith_stack_has(rt, 1)) return false;
+    PithValue a = pith_pop(rt);
+    const char *type_name;
+    switch (a.type) {
+        case VAL_NIL: type_name = "nil"; break;
+        case VAL_BOOL: type_name = "bool"; break;
+        case VAL_NUMBER: type_name = "number"; break;
+        case VAL_STRING: type_name = "string"; break;
+        case VAL_ARRAY: type_name = "array"; break;
+        case VAL_VIEW: type_name = "view"; break;
+        case VAL_DICT: type_name = "dict"; break;
+        case VAL_BLOCK: type_name = "block"; break;
+        default: type_name = "unknown"; break;
+    }
+    pith_value_free(a);
+    return pith_push(rt, PITH_STRING(pith_strdup(type_name)));
+}
+
+static bool builtin_is_string(PithRuntime *rt) {
+    if (!pith_stack_has(rt, 1)) return false;
+    PithValue a = pith_pop(rt);
+    bool result = PITH_IS_STRING(a);
+    pith_value_free(a);
+    return pith_push(rt, PITH_BOOL(result));
+}
+
+static bool builtin_is_number(PithRuntime *rt) {
+    if (!pith_stack_has(rt, 1)) return false;
+    PithValue a = pith_pop(rt);
+    bool result = PITH_IS_NUMBER(a);
+    pith_value_free(a);
+    return pith_push(rt, PITH_BOOL(result));
+}
+
+static bool builtin_is_array(PithRuntime *rt) {
+    if (!pith_stack_has(rt, 1)) return false;
+    PithValue a = pith_pop(rt);
+    bool result = PITH_IS_ARRAY(a);
+    pith_value_free(a);
+    return pith_push(rt, PITH_BOOL(result));
+}
+
+static bool builtin_is_map(PithRuntime *rt) {
+    if (!pith_stack_has(rt, 1)) return false;
+    PithValue a = pith_pop(rt);
+    bool result = (a.type == VAL_DICT);
+    pith_value_free(a);
+    return pith_push(rt, PITH_BOOL(result));
+}
+
+static bool builtin_is_bool(PithRuntime *rt) {
+    if (!pith_stack_has(rt, 1)) return false;
+    PithValue a = pith_pop(rt);
+    bool result = PITH_IS_BOOL(a);
+    pith_value_free(a);
+    return pith_push(rt, PITH_BOOL(result));
+}
+
+static bool builtin_is_nil(PithRuntime *rt) {
+    if (!pith_stack_has(rt, 1)) return false;
+    PithValue a = pith_pop(rt);
+    bool result = PITH_IS_NIL(a);
+    pith_value_free(a);
+    return pith_push(rt, PITH_BOOL(result));
+}
+
 /* Printing */
 static bool builtin_print(PithRuntime *rt) {
     if (!pith_stack_has(rt, 1)) return false;
@@ -1763,6 +1831,15 @@ static BuiltinEntry builtins[] = {
     {"find", builtin_find},
     {"any", builtin_any},
     {"all", builtin_all},
+
+    /* Type Checking */
+    {"type", builtin_type},
+    {"string?", builtin_is_string},
+    {"number?", builtin_is_number},
+    {"array?", builtin_is_array},
+    {"map?", builtin_is_map},
+    {"bool?", builtin_is_bool},
+    {"nil?", builtin_is_nil},
 
     {NULL, NULL}
 };

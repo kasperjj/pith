@@ -290,9 +290,8 @@ remove      # ( map key -- map )
 merge       # ( map map -- map )
 ```
 
-## Type Checking ○
+## Type Checking ✓
 
-**Not yet implemented:**
 ```
 type        # ( a -- str )
 string?     # ( a -- bool )

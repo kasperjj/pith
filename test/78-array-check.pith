@@ -1,0 +1,11 @@
+# expect: true
+# expect: true
+# expect: false
+# expect: false
+# array?: ( a -- bool )
+main:
+    [1, 2, 3] array? print
+    [] array? print
+    "hello" array? print
+    42 array? print
+end

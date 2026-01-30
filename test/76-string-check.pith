@@ -1,0 +1,9 @@
+# expect: true
+# expect: false
+# expect: false
+# string?: ( a -- bool )
+main:
+    "hello" string? print
+    42 string? print
+    [1, 2] string? print
+end

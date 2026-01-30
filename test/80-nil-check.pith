@@ -1,0 +1,11 @@
+# expect: true
+# expect: false
+# expect: false
+# expect: false
+# nil?: ( a -- bool )
+main:
+    nil nil? print
+    0 nil? print
+    false nil? print
+    "" nil? print
+end

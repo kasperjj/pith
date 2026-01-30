@@ -1,0 +1,11 @@
+# expect: true
+# expect: true
+# expect: false
+# expect: false
+# bool?: ( a -- bool )
+main:
+    true bool? print
+    false bool? print
+    1 bool? print
+    "true" bool? print
+end
