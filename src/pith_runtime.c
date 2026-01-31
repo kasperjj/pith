@@ -3234,6 +3234,80 @@ static bool builtin_spacer(PithRuntime *rt) {
     return pith_push(rt, PITH_VIEW(view));
 }
 
+/* view-switch: [views] index -> view */
+/* Returns the view at the given index, hiding others */
+static bool builtin_view_switch(PithRuntime *rt) {
+    if (!pith_stack_has(rt, 2)) return false;
+
+    PithValue index_val = pith_pop(rt);
+    PithValue arr_val = pith_pop(rt);
+
+    if (!PITH_IS_ARRAY(arr_val)) {
+        pith_error(rt, "view-switch requires array as first argument");
+        pith_value_free(arr_val);
+        pith_value_free(index_val);
+        return false;
+    }
+
+    if (!PITH_IS_NUMBER(index_val)) {
+        pith_error(rt, "view-switch requires number as second argument");
+        pith_value_free(arr_val);
+        pith_value_free(index_val);
+        return false;
+    }
+
+    PithArray *arr = arr_val.as.array;
+    int index = (int)index_val.as.number;
+
+    /* Clamp index to valid range */
+    if (index < 0) index = 0;
+    if (arr->length == 0) {
+        /* Empty array - return a spacer as placeholder */
+        pith_value_free(arr_val);
+        PithView *view = malloc(sizeof(PithView));
+        memset(view, 0, sizeof(PithView));
+        view->type = VIEW_SPACER;
+        return pith_push(rt, PITH_VIEW(view));
+    }
+    if ((size_t)index >= arr->length) index = (int)(arr->length - 1);
+
+    /* Get the view at the index */
+    PithValue item = arr->items[index];
+    if (!PITH_IS_VIEW(item)) {
+        pith_error(rt, "view-switch: item at index %d is not a view", index);
+        pith_value_free(arr_val);
+        return false;
+    }
+
+    /* Take ownership of the selected view */
+    PithView *selected_view = item.as.view;
+    arr->items[index].type = VAL_NIL;  /* Prevent double-free */
+
+    /* Free the array and other views */
+    for (size_t i = 0; i < arr->length; i++) {
+        if (i != (size_t)index) {
+            pith_value_free(arr->items[i]);
+        }
+    }
+    free(arr->items);
+    free(arr);
+
+    return pith_push(rt, PITH_VIEW(selected_view));
+}
+
+/* fill: view -> view (with fill=true) */
+static bool builtin_fill(PithRuntime *rt) {
+    if (!pith_stack_has(rt, 1)) return false;
+    PithValue v = pith_pop(rt);
+    if (!PITH_IS_VIEW(v)) {
+        pith_error(rt, "fill requires a view");
+        pith_value_free(v);
+        return false;
+    }
+    v.as.view->style.fill = true;
+    return pith_push(rt, v);
+}
+
 /* map: array block -> array */
 /* Applies block to each element, collects results */
 /* Array Operations */
@@ -3798,6 +3872,8 @@ static BuiltinEntry builtins[] = {
     {"button", builtin_button},
     {"hstack", builtin_hstack},
     {"spacer", builtin_spacer},
+    {"view-switch", builtin_view_switch},
+    {"fill", builtin_fill},
 
     /* Arrays */
     {"first", builtin_first},
@@ -4947,6 +5023,7 @@ static const char* view_type_name(PithViewType t) {
     switch (t) {
         case VIEW_TEXT: return "TEXT";
         case VIEW_TEXTFIELD: return "TEXTFIELD";
+        case VIEW_TEXTAREA: return "TEXTAREA";
         case VIEW_BUTTON: return "BUTTON";
         case VIEW_TEXTURE: return "TEXTURE";
         case VIEW_VSTACK: return "VSTACK";

@@ -17,8 +17,13 @@ app:
     parent: root
 
     # State (using signals for reactivity)
-    count: 0 signal
-    buffer: "Welcome to Pith!\n\nThis is a minimal, stack-based editor runtime.\n\nEdit this file to change the UI." signal
+    current-tab: 0 signal
+
+    # Multiple file buffers
+    buffer-1: "Welcome to Pith!\n\nThis is a minimal, stack-based editor runtime.\n\nEdit this file to change the UI." signal
+    buffer-2: "# README\n\nPith is a stack-based UI runtime.\n\n## Features\n- Reactive signals\n- Gap buffer editing\n- View switching" signal
+    buffer-3: "Notes:\n- TODO: Add syntax highlighting\n- TODO: Add file save/load\n- TODO: Add undo/redo" signal
+
     search: "" signal
     status: "Ready"
 
@@ -26,7 +31,6 @@ app:
     ui:
         [
             header
-            counter-demo
             editor-area
             status-bar
         ] vstack
@@ -37,21 +41,6 @@ app:
         key "cmd-q" = if
             "Goodbye!" print
         end
-    end
-end
-
-# Counter demo to test signals
-counter-demo:
-    parent: root
-    background: "gray 2"
-
-    ui:
-        [
-            "Count: " text
-            app.count deref to-string text
-            "+" do app.count deref 1 + app.count! end button
-            "-" do app.count deref 1 - app.count! end button
-        ] hstack
     end
 end
 
@@ -108,13 +97,35 @@ file-item:
     ui: text
 end
 
-# Main content area
+# Tab bar for switching between files
+tab-bar:
+    parent: root
+    background: "gray 2"
+
+    ui:
+        [
+            "runtime.pith" do 0 app.current-tab! end button
+            "README.md" do 1 app.current-tab! end button
+            "notes.txt" do 2 app.current-tab! end button
+            spacer
+        ] hstack
+    end
+end
+
+# Main content area with tabbed views
 content-area:
     parent: root
     fill: true
 
     ui:
-        app.buffer textarea
+        [
+            tab-bar
+            [
+                app.buffer-1 textarea
+                app.buffer-2 textarea
+                app.buffer-3 textarea
+            ] app.current-tab deref view-switch fill
+        ] vstack
     end
 end
 

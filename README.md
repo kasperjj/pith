@@ -20,9 +20,9 @@ app:
     ui:
         [
             "Count: " text
-            count to-string text
-            "+" do count 1 + count! end button
-            "-" do count 1 - count! end button
+            count deref to-string text
+            "+" do count deref 1 + count! end button
+            "-" do count deref 1 - count! end button
         ] hstack
     end
 end
@@ -116,8 +116,9 @@ end
 **Signals for reactive state:**
 ```
 counter: 0 signal           # create reactive state
-counter                     # read value (auto-unwraps)
+counter deref               # read value (explicit unwrap)
 42 counter!                 # write value (triggers re-render)
+counter textfield           # bind signal to widget (two-way)
 ```
 
 **UI primitives:**
@@ -127,7 +128,10 @@ counter                     # read value (auto-unwraps)
 ["x" text "y" text] vstack  # vertical layout
 spacer                      # flexible space
 "Click" do ... end button   # clickable button
-"" textfield                # editable text input
+"" textfield                # single-line text input
+buffer textarea             # multiline text editor
+[v1 v2] idx view-switch     # select view by index (for tabs)
+my-view fill                # make view fill available space
 ```
 
 ### Lifecycle
@@ -154,7 +158,7 @@ exit:   # cleanup
 - Signals for reactive state
 - File I/O (file-read, file-write, file-exists, dir-list)
 - JSON parsing (to-json, parse-json)
-- UI: text, textfield, button, vstack, hstack, spacer
+- UI: text, textfield, textarea, button, vstack, hstack, spacer, view-switch, fill
 - Styling: colors, backgrounds, borders, padding, gap
 - Control flow: if/else, do blocks
 

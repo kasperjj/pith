@@ -359,12 +359,14 @@ end
 
 ### Reading Signals
 
-When you access a signal slot, it automatically unwraps to its inner value:
+Use `deref` to explicitly unwrap a signal to its inner value:
 
 ```
-app.count                     # returns the number, not the signal
-app.count to-string text      # displays "0"
+app.count deref               # returns the number (e.g., 0)
+app.count deref to-string text      # displays "0"
 ```
+
+**Note:** Signals must be explicitly dereferenced with `deref` when you need their value. This allows signals to be passed to widgets like `textarea` and `textfield` for two-way binding.
 
 ### Writing Signals
 
@@ -387,9 +389,9 @@ app:
     ui:
         [
             "Count: " text
-            count to-string text
-            "+" do count 1 + count! end button
-            "-" do count 1 - count! end button
+            count deref to-string text
+            "+" do count deref 1 + count! end button
+            "-" do count deref 1 - count! end button
         ] hstack
     end
 end
@@ -400,7 +402,7 @@ end
 ```
 
 When the `+` or `-` button is clicked:
-1. The button's block executes, modifying the signal
+1. The button's block executes, reading (`deref`) and modifying the signal
 2. The signal is marked as dirty
 3. The UI automatically re-renders with the new value
 
@@ -472,11 +474,14 @@ words               # ( str -- array )
 **Implemented:**
 ```
 text        # ( str -- view )
-textfield   # ( str -- view )      # editable text field (uses gap buffer internally)
-button      # ( label block -- view ) # clickable button with on-click handler
-vstack      # ( array -- view )    # array of views
-hstack      # ( array -- view )    # array of views
-spacer      # ( -- view )          # expands to fill available space
+textfield   # ( signal-or-str -- view )  # single-line editable text field
+textarea    # ( signal-or-str -- view )  # multiline editable text area
+button      # ( label block -- view )    # clickable button with on-click handler
+vstack      # ( array -- view )          # vertical stack of views
+hstack      # ( array -- view )          # horizontal stack of views
+spacer      # ( -- view )                # expands to fill available space
+view-switch # ( array index -- view )    # select one view from array by index
+fill        # ( view -- view )           # set fill=true on a view
 ```
 
 **Not yet implemented:**
@@ -494,6 +499,7 @@ A single-line editable text input field. Internally uses a gap buffer for effici
 ```
 "" textfield                  # empty text field
 "initial value" textfield     # text field with initial content
+my-signal textfield           # bound to a signal (persists edits)
 ```
 
 Click on a textfield to focus it, then type to edit. Supports:
@@ -501,6 +507,45 @@ Click on a textfield to focus it, then type to edit. Supports:
 - Backspace/Delete for deletion
 - Home/End to jump to start/end
 - Escape to unfocus
+
+When bound to a signal, the textfield's content is written back to the signal when focus is lost (clicking elsewhere or pressing Escape).
+
+### Textarea ✓
+
+A multiline editable text area. Like textfield but supports multiple lines.
+
+```
+"line 1\nline 2" textarea     # textarea with initial content
+my-signal textarea            # bound to a signal (persists edits)
+```
+
+Supports all textfield keys plus:
+- Arrow keys (up/down) for line navigation
+- Home/End to jump to line start/end
+- Enter to insert newlines
+
+When bound to a signal, changes are persisted when focus is lost.
+
+**Example - tabbed editor:**
+```
+app:
+    parent: root
+    current-tab: 0 signal
+    buffer-1: "File 1 content" signal
+    buffer-2: "File 2 content" signal
+
+    ui:
+        [
+            "File 1" do 0 app.current-tab! end button
+            "File 2" do 1 app.current-tab! end button
+        ] hstack
+        [
+            app.buffer-1 textarea
+            app.buffer-2 textarea
+        ] app.current-tab deref view-switch fill
+    end
+end
+```
 
 ### Button ✓
 
@@ -513,7 +558,7 @@ A clickable button with a label and an on-click handler block.
 The block after `do ... end` executes when the button is clicked. Commonly used with signals for reactive updates:
 
 ```
-"+" do count 1 + count! end button
+"+" do count deref 1 + count! end button
 ```
 
 ### Spacer ✓
@@ -542,6 +587,60 @@ end
 ```
 
 Multiple spacers share the available space equally.
+
+### View Switch ✓
+
+Selects one view from an array based on an index. Useful for tabbed interfaces or conditional rendering.
+
+```
+[view1 view2 view3] 0 view-switch    # returns view1
+[view1 view2 view3] 1 view-switch    # returns view2
+```
+
+The index is clamped to valid bounds (0 to length-1). Views not selected are freed to prevent memory leaks.
+
+**Example - tab bar:**
+```
+app:
+    parent: root
+    tab: 0 signal
+
+    ui:
+        [
+            # Tab buttons
+            [
+                "Tab A" do 0 app.tab! end button
+                "Tab B" do 1 app.tab! end button
+            ] hstack
+
+            # Tab content
+            [
+                "Content for Tab A" text
+                "Content for Tab B" text
+            ] app.tab deref view-switch
+        ] vstack
+    end
+end
+```
+
+### Fill ✓
+
+Sets the `fill` property on a view, causing it to expand and fill available space in its parent stack.
+
+```
+my-view fill                  # view now fills available space
+```
+
+Commonly used with `view-switch` to make the selected view fill its container:
+
+```
+[
+    app.buffer-1 textarea
+    app.buffer-2 textarea
+] app.current-tab deref view-switch fill
+```
+
+Without `fill`, views only take their natural size. With `fill`, they expand to use all remaining space.
 
 ## Style Slots (Cascading) ✓
 
