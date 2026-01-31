@@ -394,9 +394,27 @@ static void render_rect(PithUI *ui, int x, int y, int w, int h, uint32_t color) 
 static void measure_view(PithUI *ui, PithView *view, int *out_w, int *out_h) {
     switch (view->type) {
         case VIEW_TEXT:
-            /* Approximate: 1 cell per character */
-            *out_w = view->as.text.content ? strlen(view->as.text.content) : 0;
-            *out_h = 1;
+            /* Count lines and find max line width */
+            if (view->as.text.content) {
+                int lines = 1;
+                int max_width = 0;
+                int current_width = 0;
+                for (const char *c = view->as.text.content; *c; c++) {
+                    if (*c == '\n') {
+                        lines++;
+                        if (current_width > max_width) max_width = current_width;
+                        current_width = 0;
+                    } else {
+                        current_width++;
+                    }
+                }
+                if (current_width > max_width) max_width = current_width;
+                *out_w = max_width;
+                *out_h = lines;
+            } else {
+                *out_w = 0;
+                *out_h = 1;
+            }
             break;
             
         case VIEW_TEXTFIELD:

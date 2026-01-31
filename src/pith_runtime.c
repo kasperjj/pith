@@ -3,6 +3,7 @@
  */
 
 #include "pith_runtime.h"
+#include "pith_ui.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -691,8 +692,76 @@ void pith_view_free(PithView *view) {
     if (view->style.has_border) {
         free(view->style.border);
     }
-    
+
     free(view);
+}
+
+/* Apply style slots from a dictionary (following parent chain) to a view */
+static void pith_apply_dict_styles(PithDict *dict, PithView *view) {
+    if (!dict || !view) return;
+
+    /* Look up each style slot and apply if found */
+
+    /* Color (text color) */
+    PithSlot *color_slot = pith_dict_lookup(dict, "color");
+    if (color_slot && color_slot->is_cached &&
+        color_slot->cached.type == VAL_STRING) {
+        view->style.has_color = true;
+        view->style.color = pith_color_parse(color_slot->cached.as.string);
+    }
+
+    /* Background */
+    PithSlot *bg_slot = pith_dict_lookup(dict, "background");
+    if (bg_slot && bg_slot->is_cached &&
+        bg_slot->cached.type == VAL_STRING) {
+        const char *bg_str = bg_slot->cached.as.string;
+        if (strcmp(bg_str, "none") == 0 || strcmp(bg_str, "transparent") == 0) {
+            view->style.has_background = false;
+        } else {
+            view->style.has_background = true;
+            view->style.background = pith_color_parse(bg_str);
+        }
+    }
+
+    /* Padding */
+    PithSlot *padding_slot = pith_dict_lookup(dict, "padding");
+    if (padding_slot && padding_slot->is_cached &&
+        padding_slot->cached.type == VAL_NUMBER) {
+        view->style.has_padding = true;
+        view->style.padding = (int)padding_slot->cached.as.number;
+    }
+
+    /* Gap */
+    PithSlot *gap_slot = pith_dict_lookup(dict, "gap");
+    if (gap_slot && gap_slot->is_cached &&
+        gap_slot->cached.type == VAL_NUMBER) {
+        view->style.has_gap = true;
+        view->style.gap = (int)gap_slot->cached.as.number;
+    }
+
+    /* Border */
+    PithSlot *border_slot = pith_dict_lookup(dict, "border");
+    if (border_slot && border_slot->is_cached &&
+        border_slot->cached.type == VAL_STRING) {
+        view->style.has_border = true;
+        if (view->style.border) free(view->style.border);
+        view->style.border = pith_strdup(border_slot->cached.as.string);
+    }
+
+    /* Bold */
+    PithSlot *bold_slot = pith_dict_lookup(dict, "bold");
+    if (bold_slot && bold_slot->is_cached &&
+        bold_slot->cached.type == VAL_BOOL) {
+        view->style.has_bold = true;
+        view->style.bold = bold_slot->cached.as.boolean;
+    }
+
+    /* Fill */
+    PithSlot *fill_slot = pith_dict_lookup(dict, "fill");
+    if (fill_slot && fill_slot->is_cached &&
+        fill_slot->cached.type == VAL_BOOL) {
+        view->style.fill = fill_slot->cached.as.boolean;
+    }
 }
 
 /* ========================================================================
@@ -3504,6 +3573,13 @@ bool pith_execute_word(PithRuntime *rt, const char *name) {
                     rt->current_dict = dict;
                     bool result = pith_execute_slot(rt, ui_slot);
                     rt->current_dict = saved_dict;
+                    /* Apply dictionary styles to the view if one was produced */
+                    if (result && rt->stack_top > 0) {
+                        PithValue *top = &rt->stack[rt->stack_top - 1];
+                        if (top->type == VAL_VIEW) {
+                            pith_apply_dict_styles(dict, top->as.view);
+                        }
+                    }
                     g_exec_depth--;
                     return result;
                 } else {
@@ -3529,6 +3605,13 @@ bool pith_execute_word(PithRuntime *rt, const char *name) {
             rt->current_dict = dict;
             bool result = pith_execute_slot(rt, ui_slot);
             rt->current_dict = saved_dict;
+            /* Apply dictionary styles to the view if one was produced */
+            if (result && rt->stack_top > 0) {
+                PithValue *top = &rt->stack[rt->stack_top - 1];
+                if (top->type == VAL_VIEW) {
+                    pith_apply_dict_styles(dict, top->as.view);
+                }
+            }
             g_exec_depth--;
             return result;
         } else {
@@ -4137,6 +4220,50 @@ bool pith_runtime_load_string(PithRuntime *rt, const char *source, const char *n
                 PithDict *parent = pith_find_dict(rt, parent_tok->text);
                 if (parent) {
                     pith_dict_set_parent(dict, parent);
+                }
+            }
+        }
+    }
+
+    /* Third pass: cache simple literal slots (single token: string, number, bool, nil) */
+    for (size_t d = 0; d < rt->root->slot_count; d++) {
+        PithSlot *dict_slot = &rt->root->slots[d];
+        if (!dict_slot->is_cached || dict_slot->cached.type != VAL_DICT) {
+            continue; /* Not a dictionary slot */
+        }
+
+        PithDict *dict = dict_slot->cached.as.dict;
+        for (size_t s = 0; s < dict->slot_count; s++) {
+            PithSlot *slot = &dict->slots[s];
+            if (slot->is_cached) continue; /* Already cached */
+
+            /* Check if slot body is a single token */
+            if (slot->body_end - slot->body_start == 1) {
+                PithToken *tok = &rt->tokens[slot->body_start];
+                switch (tok->type) {
+                    case TOK_STRING:
+                        slot->is_cached = true;
+                        slot->cached = PITH_STRING(pith_strdup(tok->text));
+                        break;
+                    case TOK_NUMBER:
+                        slot->is_cached = true;
+                        slot->cached = PITH_NUMBER(atof(tok->text));
+                        break;
+                    case TOK_TRUE:
+                        slot->is_cached = true;
+                        slot->cached = PITH_BOOL(true);
+                        break;
+                    case TOK_FALSE:
+                        slot->is_cached = true;
+                        slot->cached = PITH_BOOL(false);
+                        break;
+                    case TOK_NIL:
+                        slot->is_cached = true;
+                        slot->cached = PITH_NIL();
+                        break;
+                    default:
+                        /* Not a simple literal - leave uncached */
+                        break;
                 }
             }
         }

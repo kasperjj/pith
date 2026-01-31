@@ -8,10 +8,8 @@ root:
     parent: component
 
     # Style defaults (cascade to children)
-    color: "white"
-    background: "black"
-    padding: 1
-    gap: 1
+    color: "gray 9"
+    background: "gray 0"
 end
 
 # Main application component
@@ -27,7 +25,6 @@ app:
         [
             header
             editor-area
-            spacer
             status-bar
         ] vstack
     end
@@ -43,13 +40,12 @@ end
 # Header bar
 header:
     parent: root
-    background: "darkgray"
-    padding: 1
-    
+    background: "gray 3"
+
     ui:
         [
             "Pith Editor" text
-            "v0.1" text
+            " v0.1" text
         ] hstack
     end
 end
@@ -57,7 +53,8 @@ end
 # Main editor area
 editor-area:
     parent: root
-    
+    fill: true
+
     ui:
         [
             sidebar
@@ -69,9 +66,8 @@ end
 # Sidebar with file list
 sidebar:
     parent: root
-    background: "darkgray"
-    padding: 1
     border: "right"
+    background: "gray 1"
     
     files: ["runtime.pith", "README.md", "notes.txt"]
     
@@ -79,6 +75,7 @@ sidebar:
         [
             "Files" text
             files do file-item end map vstack
+            spacer
         ] vstack
     end
 end
@@ -86,14 +83,14 @@ end
 # Single file item in sidebar
 file-item:
     parent: root
-    
+    background: "none"
+
     ui: text
 end
 
 # Main content area
 content-area:
     parent: root
-    padding: 1
     
     ui:
         app.buffer text
@@ -103,12 +100,12 @@ end
 # Status bar at bottom
 status-bar:
     parent: root
-    background: "gray"
-    padding: 1
+    background: "gray 3"
 
     ui:
         [
             app.status text
+            spacer
             "Ln 1, Col 1" text
         ] hstack
     end
