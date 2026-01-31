@@ -215,10 +215,10 @@ rot         # ( a b c -- b c a )
 ## Arithmetic ✓
 
 ```
-add         # ( a b -- sum )
-subtract    # ( a b -- difference )
-multiply    # ( a b -- product )
-divide      # ( a b -- quotient )
+add, +      # ( a b -- sum )
+subtract, - # ( a b -- difference )
+multiply, * # ( a b -- product )
+divide, /   # ( a b -- quotient )
 mod         # ( a b -- remainder )
 abs         # ( a -- absolute )
 min         # ( a b -- smaller )
@@ -338,6 +338,79 @@ main:
 end
 ```
 
+## Signals (Reactive State) ✓
+
+Signals provide reactive state management. When a signal's value changes, the UI automatically re-renders.
+
+### Creating Signals
+
+```
+signal      # ( value -- signal )  # wrap a value in a signal
+```
+
+Signals are typically defined as slots in a component:
+
+```
+app:
+    count: 0 signal           # creates a signal with initial value 0
+    name: "Alice" signal      # creates a signal with initial string
+end
+```
+
+### Reading Signals
+
+When you access a signal slot, it automatically unwraps to its inner value:
+
+```
+app.count                     # returns the number, not the signal
+app.count to-string text      # displays "0"
+```
+
+### Writing Signals
+
+Use the `!` suffix to write to a signal:
+
+```
+42 app.count!                 # sets count to 42
+app.count 1 + app.count!      # increments count by 1
+```
+
+The write syntax works with dot notation for accessing signals in other components.
+
+### Reactive UI Example
+
+```
+app:
+    parent: root
+    count: 0 signal
+
+    ui:
+        [
+            "Count: " text
+            count to-string text
+            "+" do count 1 + count! end button
+            "-" do count 1 - count! end button
+        ] hstack
+    end
+end
+
+ui:
+    app
+end
+```
+
+When the `+` or `-` button is clicked:
+1. The button's block executes, modifying the signal
+2. The signal is marked as dirty
+3. The UI automatically re-renders with the new value
+
+### How It Works
+
+- Signals wrap values and track when they change
+- Writing to a signal (`word!`) marks it as dirty
+- After event handling, dirty signals trigger a UI rebuild
+- Reading a signal always returns the unwrapped inner value
+
 ## Type Checking ✓
 
 ```
@@ -399,6 +472,8 @@ words               # ( str -- array )
 **Implemented:**
 ```
 text        # ( str -- view )
+textfield   # ( str -- view )      # editable text field (uses gap buffer internally)
+button      # ( label block -- view ) # clickable button with on-click handler
 vstack      # ( array -- view )    # array of views
 hstack      # ( array -- view )    # array of views
 spacer      # ( -- view )          # expands to fill available space
@@ -406,12 +481,39 @@ spacer      # ( -- view )          # expands to fill available space
 
 **Not yet implemented:**
 ```
-textfield   # ( str on-change -- view )
-button      # ( label on-click -- view )
 texture     # ( path -- view )
 width       # ( view n -- view )
 height      # ( view n -- view )
 scroll      # ( view -- view )
+```
+
+### Textfield ✓
+
+A single-line editable text input field. Internally uses a gap buffer for efficient editing.
+
+```
+"" textfield                  # empty text field
+"initial value" textfield     # text field with initial content
+```
+
+Click on a textfield to focus it, then type to edit. Supports:
+- Arrow keys (left/right) for cursor movement
+- Backspace/Delete for deletion
+- Home/End to jump to start/end
+- Escape to unfocus
+
+### Button ✓
+
+A clickable button with a label and an on-click handler block.
+
+```
+"Click me" do "Clicked!" print end button
+```
+
+The block after `do ... end` executes when the button is clicked. Commonly used with signals for reactive updates:
+
+```
+"+" do count 1 + count! end button
 ```
 
 ### Spacer ✓
@@ -476,17 +578,23 @@ background: "blue 4"    # medium blue
 
 Each family has 10 shades (0-9), from lightest to darkest.
 
-## Reactivity ○
 
-**Not yet implemented.** Planned: Components with `buffer` and `ui` slots will be reactive.
+### Event Handlers
 
-## Events ○
-
-**Partially implemented.** Event handlers can be defined but execution is incomplete:
+**Button clicks** are handled via the block passed to `button`:
 
 ```
-on-key          # ( key -- )
-on-click        # ( target -- )
+"Click me" do "Clicked!" print end button
+```
+
+**Keyboard events** can be handled with `on-key` slot (partially implemented):
+
+```
+on-key:
+    key "cmd-q" = if
+        "Goodbye!" print
+    end
+end
 ```
 
 ## Utility
