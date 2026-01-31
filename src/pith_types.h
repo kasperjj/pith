@@ -23,11 +23,12 @@ typedef enum {
     VAL_STRING,
     VAL_ARRAY,
     VAL_MAP,
-    VAL_BLOCK,      /* Anonymous block (do ... end) */
-    VAL_VIEW,       /* UI view */
-    VAL_DICT,       /* Dictionary/component reference */
-    VAL_GAPBUF,     /* Gap buffer for text editing */
-    VAL_SIGNAL,     /* Reactive signal */
+    VAL_BLOCK,          /* Anonymous block (do ... end) */
+    VAL_VIEW,           /* UI view */
+    VAL_DICT,           /* Dictionary/component reference */
+    VAL_GAPBUF,         /* Gap buffer for text editing */
+    VAL_SIGNAL,         /* Reactive signal */
+    VAL_OUTLINE_NODE,   /* Outline tree node */
 } PithValueType;
 
 /* Forward declarations */
@@ -40,6 +41,7 @@ typedef struct PithDict PithDict;
 typedef struct PithSlot PithSlot;
 typedef struct PithGapBuffer PithGapBuffer;
 typedef struct PithSignal PithSignal;
+typedef struct PithOutlineNode PithOutlineNode;
 
 /* Anonymous block - stores word indices to execute */
 struct PithBlock {
@@ -61,6 +63,7 @@ struct PithValue {
         PithDict *dict;
         PithGapBuffer *gapbuf;
         PithSignal *signal;
+        PithOutlineNode *outline_node;
     } as;
 };
 
@@ -93,6 +96,7 @@ struct PithGapBuffer {
     size_t capacity;    /* Total buffer size */
     size_t gap_start;   /* Start of gap (cursor position in content) */
     size_t gap_end;     /* End of gap (exclusive) */
+    int scroll_offset;  /* First visible line (for textarea views) */
 };
 
 /* Reactive signal - wraps a value and tracks dependencies
@@ -120,7 +124,25 @@ typedef enum {
     VIEW_VSTACK,
     VIEW_HSTACK,
     VIEW_SPACER,
+    VIEW_OUTLINE,
 } PithViewType;
+
+/* Outline node for hierarchical views (file browsers, trees, etc.) */
+typedef struct PithOutlineNode PithOutlineNode;
+struct PithOutlineNode {
+    char *label;
+    char *icon;                     /* Single char/string, NULL = auto */
+    uint32_t icon_color;            /* RGBA, 0 = inherit */
+    PithBlock *on_click;            /* For leaf items only */
+
+    PithOutlineNode **children;
+    size_t child_count;
+
+    bool collapsed;                 /* For groups (internal state) */
+
+    /* Cached render position for click handling */
+    int render_y;
+};
 
 /* Style properties - all optional (use parent if not set) */
 typedef struct {
@@ -149,6 +171,9 @@ typedef struct {
     int height;                 /* In cells, 0 = auto */
     
     bool fill;                  /* Expand to available space */
+
+    bool has_statusbar;
+    bool statusbar;             /* Show status bar (for textarea) */
 } PithStyle;
 
 /* A renderable view */
@@ -194,6 +219,13 @@ struct PithView {
             PithView **children;
             size_t count;
         } stack;
+
+        /* VIEW_OUTLINE */
+        struct {
+            PithOutlineNode **roots;
+            size_t root_count;
+            int scroll_offset;      /* For scrolling long lists */
+        } outline;
     } as;
 
     /* Cached render position (set during rendering for click handling) */
@@ -292,6 +324,7 @@ typedef struct {
 #define PITH_DICT(v)        ((PithValue){ .type = VAL_DICT, .as.dict = (v) })
 #define PITH_GAPBUF(v)      ((PithValue){ .type = VAL_GAPBUF, .as.gapbuf = (v) })
 #define PITH_SIGNAL(v)      ((PithValue){ .type = VAL_SIGNAL, .as.signal = (v) })
+#define PITH_OUTLINE_NODE(v) ((PithValue){ .type = VAL_OUTLINE_NODE, .as.outline_node = (v) })
 
 /* Type checking */
 #define PITH_IS_NIL(v)      ((v).type == VAL_NIL)
@@ -305,5 +338,6 @@ typedef struct {
 #define PITH_IS_DICT(v)     ((v).type == VAL_DICT)
 #define PITH_IS_GAPBUF(v)   ((v).type == VAL_GAPBUF)
 #define PITH_IS_SIGNAL(v)   ((v).type == VAL_SIGNAL)
+#define PITH_IS_OUTLINE_NODE(v) ((v).type == VAL_OUTLINE_NODE)
 
 #endif /* PITH_TYPES_H */

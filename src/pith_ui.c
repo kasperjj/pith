@@ -39,6 +39,7 @@ struct PithUI {
 
     /* Focus state */
     PithView *focused_view;
+    PithSignal *focused_signal;  /* Signal to restore focus after rebuild */
 
     /* Click state - prevent duplicate click events per frame */
     bool left_click_handled;
@@ -479,6 +480,11 @@ static void measure_view(PithUI *ui, PithView *view, int *out_w, int *out_h) {
             } else {
                 *out_h = line_count;
             }
+
+            /* Add 1 row for status bar if enabled */
+            if (view->style.has_statusbar && view->style.statusbar) {
+                *out_h += 1;
+            }
             break;
         }
 
@@ -527,6 +533,59 @@ static void measure_view(PithUI *ui, PithView *view, int *out_w, int *out_h) {
             *out_w = 0;
             *out_h = 0;
             break;
+
+        case VIEW_OUTLINE: {
+            /* If fill is set, return 0 so it expands */
+            if (view->style.fill) {
+                *out_w = 0;
+                *out_h = 0;
+                break;
+            }
+
+            /* Count visible nodes (respecting collapsed state) */
+            int visible_count = 0;
+            int max_width = 20;  /* Minimum width */
+
+            /* Stack-based traversal to count visible nodes */
+            PithOutlineNode **stack = malloc(256 * sizeof(PithOutlineNode*));
+            int *depths = malloc(256 * sizeof(int));
+            int top = -1;
+
+            for (int i = (int)view->as.outline.root_count - 1; i >= 0; i--) {
+                stack[++top] = view->as.outline.roots[i];
+                depths[top] = 0;
+            }
+
+            while (top >= 0) {
+                PithOutlineNode *node = stack[top];
+                int depth = depths[top];
+                top--;
+
+                visible_count++;
+
+                /* Calculate width: indent + indicator + label */
+                int node_width = depth * 2 + 2;  /* Indent + indicator */
+                if (node->label) {
+                    node_width += (int)strlen(node->label);
+                }
+                if (node_width > max_width) max_width = node_width;
+
+                /* Push children if not collapsed */
+                if (node->child_count > 0 && !node->collapsed) {
+                    for (int i = (int)node->child_count - 1; i >= 0 && top < 255; i--) {
+                        stack[++top] = node->children[i];
+                        depths[top] = depth + 1;
+                    }
+                }
+            }
+
+            free(stack);
+            free(depths);
+
+            *out_w = max_width;
+            *out_h = visible_count;
+            break;
+        }
 
         default:
             /* Unknown view type */
@@ -637,9 +696,9 @@ static PithView* hit_test_internal(PithUI *ui, PithView *view,
             break;
     }
 
-    /* Return this view if it's a focusable type */
+    /* Return this view if it's a focusable/clickable type */
     if (view->type == VIEW_TEXTFIELD || view->type == VIEW_TEXTAREA ||
-        view->type == VIEW_BUTTON) {
+        view->type == VIEW_BUTTON || view->type == VIEW_OUTLINE) {
         return view;
     }
 
@@ -750,12 +809,20 @@ static void render_view_internal(PithUI *ui, PithView *view,
             render_border(ui, inner_x, inner_y, inner_w, inner_h, "all",
                           ui->config.color_border);
 
+            /* Check if status bar is enabled */
+            bool show_statusbar = view->style.has_statusbar && view->style.statusbar;
+
             /* Render text line by line */
             if (view->as.textarea.buffer) {
                 PithGapBuffer *buf = view->as.textarea.buffer;
                 size_t total_lines = pith_gapbuf_line_count(buf);
-                int scroll_offset = view->as.textarea.scroll_offset;
+                int scroll_offset = buf->scroll_offset;
+
+                /* Calculate visible lines (reserve 1 for status bar if enabled) */
                 int visible_lines = inner_h;
+                if (show_statusbar && visible_lines > 1) {
+                    visible_lines -= 1;
+                }
 
                 /* Cache visible height for scroll calculations */
                 view->as.textarea.visible_height = visible_lines;
@@ -801,6 +868,29 @@ static void render_view_internal(PithUI *ui, PithView *view,
                         DrawRectangle(px, py, 2, ui->cell_height,
                                      rgba_to_color(field_fg));
                     }
+                }
+
+                /* Render status bar if enabled */
+                if (show_statusbar) {
+                    int statusbar_y = inner_y + inner_h - 1;
+
+                    /* Draw status bar background (darker than content area) */
+                    render_rect(ui, inner_x, statusbar_y, inner_w, 1, 0x495057ff); /* gray 6 */
+
+                    /* Get cursor position (1-indexed for display) */
+                    size_t line = pith_gapbuf_cursor_line(buf) + 1;
+                    size_t col = pith_gapbuf_cursor_column(buf) + 1;
+
+                    /* Format status text */
+                    char status[64];
+                    snprintf(status, sizeof(status), "Ln %zu, Col %zu", line, col);
+
+                    /* Render right-aligned */
+                    int text_len = (int)strlen(status);
+                    int text_x = inner_x + inner_w - text_len - 1;
+                    if (text_x < inner_x + 1) text_x = inner_x + 1;
+
+                    render_text(ui, status, text_x, statusbar_y, 0xf8f9faff, false); /* light text */
                 }
             }
             break;
@@ -901,6 +991,102 @@ static void render_view_internal(PithUI *ui, PithView *view,
         case VIEW_SPACER:
             /* Spacer is invisible - just takes up space */
             break;
+
+        case VIEW_OUTLINE: {
+            /* Render outline tree with connectors */
+            int current_y = inner_y;
+
+            /* Helper to render a node recursively */
+            /* We use a stack-based approach to avoid deep recursion */
+            typedef struct {
+                PithOutlineNode *node;
+                int depth;
+                bool is_last;
+                bool *parent_is_last;  /* Array tracking if each ancestor is last */
+            } RenderItem;
+
+            /* Calculate total visible nodes for stack sizing */
+            size_t max_items = 256;  /* Should be enough for most trees */
+            RenderItem *stack = malloc(max_items * sizeof(RenderItem));
+            bool *is_last_stack = malloc(64 * sizeof(bool));  /* Max depth 64 */
+            int stack_top = -1;
+
+            /* Push root nodes in reverse order */
+            for (int i = (int)view->as.outline.root_count - 1; i >= 0; i--) {
+                stack[++stack_top] = (RenderItem){
+                    .node = view->as.outline.roots[i],
+                    .depth = 0,
+                    .is_last = (i == (int)view->as.outline.root_count - 1),
+                    .parent_is_last = is_last_stack
+                };
+            }
+
+            while (stack_top >= 0 && current_y < inner_y + inner_h) {
+                RenderItem item = stack[stack_top--];
+                PithOutlineNode *node = item.node;
+                int depth = item.depth;
+
+                /* Store is_last for this depth */
+                if (depth < 64) {
+                    is_last_stack[depth] = item.is_last;
+                }
+
+                /* Cache render position for click handling */
+                node->render_y = current_y;
+
+                /* Build indent - just spaces based on depth */
+                int indent = depth * 2;
+
+                /* Draw collapse indicator or icon */
+                bool is_group = (node->child_count > 0);
+                char indicator[16] = "";
+                int indicator_width = 0;
+                if (is_group) {
+                    snprintf(indicator, sizeof(indicator), "%s ", node->collapsed ? ">" : "v");
+                    indicator_width = 2;  /* Indicator + space */
+                } else if (node->icon) {
+                    snprintf(indicator, sizeof(indicator), "%s ", node->icon);
+                    indicator_width = 2;  /* Icon + space */
+                } else {
+                    snprintf(indicator, sizeof(indicator), "  ");
+                    indicator_width = 2;
+                }
+
+                /* Determine colors */
+                uint32_t icon_col = node->icon_color ? node->icon_color : fg;
+                uint32_t text_col = fg;
+
+                /* Render the line */
+                int text_x = inner_x + indent;
+
+                /* Render indicator/icon */
+                render_text(ui, indicator, text_x, current_y, icon_col, false);
+                text_x += indicator_width;
+
+                /* Render label */
+                if (node->label) {
+                    render_text(ui, node->label, text_x, current_y, text_col, is_group);
+                }
+
+                current_y++;
+
+                /* Push children in reverse order if not collapsed */
+                if (is_group && !node->collapsed) {
+                    for (int i = (int)node->child_count - 1; i >= 0 && stack_top < (int)max_items - 1; i--) {
+                        stack[++stack_top] = (RenderItem){
+                            .node = node->children[i],
+                            .depth = depth + 1,
+                            .is_last = (i == (int)node->child_count - 1),
+                            .parent_is_last = is_last_stack
+                        };
+                    }
+                }
+            }
+
+            free(stack);
+            free(is_last_stack);
+            break;
+        }
     }
 }
 
@@ -981,10 +1167,86 @@ PithEvent pith_ui_poll_event(PithUI *ui) {
 
 void pith_ui_set_focus(PithUI *ui, PithView *view) {
     ui->focused_view = view;
+    /* Track signal for focus restoration after view rebuild */
+    if (view) {
+        if (view->type == VIEW_TEXTAREA && view->as.textarea.source_signal) {
+            ui->focused_signal = view->as.textarea.source_signal;
+        } else if (view->type == VIEW_TEXTFIELD && view->as.textfield.source_signal) {
+            ui->focused_signal = view->as.textfield.source_signal;
+        } else {
+            ui->focused_signal = NULL;
+        }
+    }
+    /* Don't clear focused_signal when view is NULL - we need it for restoration */
 }
 
 PithView* pith_ui_get_focus(PithUI *ui) {
     return ui->focused_view;
+}
+
+/* Helper to find view by source signal (recursive) */
+static PithView* find_view_by_signal(PithView *view, PithSignal *signal) {
+    if (!view || !signal) return NULL;
+
+    if (view->type == VIEW_TEXTAREA && view->as.textarea.source_signal == signal) {
+        return view;
+    }
+    if (view->type == VIEW_TEXTFIELD && view->as.textfield.source_signal == signal) {
+        return view;
+    }
+
+    /* Search children for stacks */
+    if (view->type == VIEW_VSTACK || view->type == VIEW_HSTACK) {
+        for (size_t i = 0; i < view->as.stack.count; i++) {
+            PithView *found = find_view_by_signal(view->as.stack.children[i], signal);
+            if (found) return found;
+        }
+    }
+
+    return NULL;
+}
+
+/* Helper to find first textarea (recursive) - used for focus restoration */
+static PithView* find_first_textarea(PithView *view) {
+    if (!view) return NULL;
+
+    if (view->type == VIEW_TEXTAREA) {
+        return view;
+    }
+
+    /* Search children for stacks */
+    if (view->type == VIEW_VSTACK || view->type == VIEW_HSTACK) {
+        for (size_t i = 0; i < view->as.stack.count; i++) {
+            PithView *found = find_first_textarea(view->as.stack.children[i]);
+            if (found) return found;
+        }
+    }
+
+    return NULL;
+}
+
+/* Restore focus after view tree rebuild */
+void pith_ui_restore_focus(PithUI *ui, PithView *root) {
+    /* Try to find the previously focused signal's view */
+    PithView *view = NULL;
+    if (ui->focused_signal) {
+        view = find_view_by_signal(root, ui->focused_signal);
+    }
+
+    /* If not found, fall back to first textarea (preserves cursor on tab switch) */
+    if (!view) {
+        view = find_first_textarea(root);
+    }
+
+    if (view) {
+        ui->focused_view = view;
+        /* Update focused_signal to match the new view */
+        if (view->type == VIEW_TEXTAREA && view->as.textarea.source_signal) {
+            ui->focused_signal = view->as.textarea.source_signal;
+        } else if (view->type == VIEW_TEXTFIELD && view->as.textfield.source_signal) {
+            ui->focused_signal = view->as.textfield.source_signal;
+        }
+    }
 }
 
 /* ========================================================================
@@ -997,7 +1259,7 @@ static void update_textarea_scroll(PithView *view) {
 
     PithGapBuffer *buf = view->as.textarea.buffer;
     size_t cursor_line = pith_gapbuf_cursor_line(buf);
-    int scroll_offset = view->as.textarea.scroll_offset;
+    int scroll_offset = buf->scroll_offset;
 
     /* Get visible height: use cached value from render, or style, or default */
     int visible_lines = 3;
@@ -1010,10 +1272,10 @@ static void update_textarea_scroll(PithView *view) {
     /* Adjust scroll to keep cursor visible */
     if ((int)cursor_line < scroll_offset) {
         /* Cursor is above visible area */
-        view->as.textarea.scroll_offset = (int)cursor_line;
+        buf->scroll_offset = (int)cursor_line;
     } else if ((int)cursor_line >= scroll_offset + visible_lines) {
         /* Cursor is below visible area */
-        view->as.textarea.scroll_offset = (int)cursor_line - visible_lines + 1;
+        buf->scroll_offset = (int)cursor_line - visible_lines + 1;
     }
 }
 
@@ -1100,6 +1362,7 @@ bool pith_ui_handle_textfield_input(PithUI *ui, PithEvent event) {
         if (key == KEY_END) {
             if (is_textarea) {
                 pith_gapbuf_line_end_move(buf);
+                update_textarea_scroll(ui->focused_view);
             } else {
                 size_t len = pith_gapbuf_length(buf);
                 pith_gapbuf_goto(buf, len);
@@ -1162,7 +1425,7 @@ void pith_ui_click_to_cursor(PithView *view, int click_x, int click_y) {
         if (visible_line < 0) visible_line = 0;
 
         /* Convert visible line to actual line number using scroll offset */
-        int scroll_offset = view->as.textarea.scroll_offset;
+        int scroll_offset = buf->scroll_offset;
         size_t line = (size_t)(scroll_offset + visible_line);
 
         /* Clamp to valid line range */
@@ -1188,12 +1451,18 @@ void pith_ui_commit_text_widget(PithView *view) {
     if (view->type == VIEW_TEXTFIELD) {
         PithSignal *sig = view->as.textfield.source_signal;
         if (sig && view->as.textfield.buffer) {
+            /* If signal already has gapbuf, buffer is shared - nothing to commit */
+            PithValue val = pith_signal_get(sig);
+            if (PITH_IS_GAPBUF(val)) return;
             char *content = pith_gapbuf_to_string(view->as.textfield.buffer);
             pith_signal_set(sig, PITH_STRING(content));
         }
     } else if (view->type == VIEW_TEXTAREA) {
         PithSignal *sig = view->as.textarea.source_signal;
         if (sig && view->as.textarea.buffer) {
+            /* If signal already has gapbuf, buffer is shared - nothing to commit */
+            PithValue val = pith_signal_get(sig);
+            if (PITH_IS_GAPBUF(val)) return;
             char *content = pith_gapbuf_to_string(view->as.textarea.buffer);
             pith_signal_set(sig, PITH_STRING(content));
         }
@@ -1216,4 +1485,62 @@ void pith_ui_pixel_to_cell(PithUI *ui, int px, int py, int *cx, int *cy) {
 
 void pith_ui_set_title(PithUI *ui, const char *title) {
     SetWindowTitle(title);
+}
+
+/* ========================================================================
+   OUTLINE VIEW CLICK HANDLING
+   ======================================================================== */
+
+/* Find outline node at given y coordinate and handle click */
+PithOutlineNode* pith_ui_outline_click(PithView *view, int click_y) {
+    if (!view || view->type != VIEW_OUTLINE) return NULL;
+
+    /* Find node at this y position by traversing visible nodes */
+    typedef struct {
+        PithOutlineNode *node;
+        int y;
+    } SearchItem;
+
+    SearchItem *stack = malloc(256 * sizeof(SearchItem));
+    int top = -1;
+    int current_y = view->render_y;
+
+    /* Push root nodes */
+    for (int i = (int)view->as.outline.root_count - 1; i >= 0; i--) {
+        stack[++top] = (SearchItem){ .node = view->as.outline.roots[i], .y = -1 };
+    }
+
+    PithOutlineNode *clicked_node = NULL;
+
+    while (top >= 0) {
+        SearchItem item = stack[top--];
+        PithOutlineNode *node = item.node;
+
+        /* This node occupies current_y */
+        if (current_y == click_y) {
+            clicked_node = node;
+            break;
+        }
+        current_y++;
+
+        /* Push children if not collapsed */
+        if (node->child_count > 0 && !node->collapsed) {
+            for (int i = (int)node->child_count - 1; i >= 0 && top < 255; i--) {
+                stack[++top] = (SearchItem){ .node = node->children[i], .y = -1 };
+            }
+        }
+    }
+
+    free(stack);
+
+    if (clicked_node) {
+        /* If it's a group, toggle collapse */
+        if (clicked_node->child_count > 0) {
+            clicked_node->collapsed = !clicked_node->collapsed;
+        }
+        /* Return the node (caller can check on_click) */
+        return clicked_node;
+    }
+
+    return NULL;
 }

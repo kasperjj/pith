@@ -105,8 +105,14 @@ void pith_ui_set_focus(PithUI *ui, PithView *view);
 /* Get the currently focused view */
 PithView* pith_ui_get_focus(PithUI *ui);
 
+/* Restore focus after view tree rebuild (finds view with same source signal) */
+void pith_ui_restore_focus(PithUI *ui, PithView *root);
+
 /* Hit test - find view at cell coordinates */
 PithView* pith_ui_hit_test(PithUI *ui, PithView *root, int cell_x, int cell_y);
+
+/* Handle click on outline view - returns clicked node (toggles collapse for groups) */
+PithOutlineNode* pith_ui_outline_click(PithView *view, int click_y);
 
 /* ========================================================================
    UTILITIES

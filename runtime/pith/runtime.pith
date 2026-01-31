@@ -72,29 +72,30 @@ editor-area:
     end
 end
 
-# Sidebar with file list
+# Sidebar with file outline
 sidebar:
     parent: root
     border: "right"
     background: "gray 1"
-    
-    files: ["runtime.pith", "README.md", "notes.txt"]
-    
+
     ui:
         [
             "Files" text
-            files do file-item end map vstack
+            [
+                "d" "src" [
+                    "f" "main.c" do 0 app.current-tab! end outline-item
+                    "f" "utils.c" do 1 app.current-tab! end outline-item
+                    "d" "components" [
+                        "f" "button.c" outline-item
+                        "f" "input.c" outline-item
+                    ] outline-group
+                ] outline-group
+                "f" "README.md" do 1 app.current-tab! end outline-item
+                "f" "notes.txt" do 2 app.current-tab! end outline-item
+            ] outline
             spacer
         ] vstack
     end
-end
-
-# Single file item in sidebar
-file-item:
-    parent: root
-    background: "none"
-
-    ui: text
 end
 
 # Tab bar for switching between files
@@ -121,9 +122,9 @@ content-area:
         [
             tab-bar
             [
-                app.buffer-1 textarea
-                app.buffer-2 textarea
-                app.buffer-3 textarea
+                app.buffer-1 textarea statusbar
+                app.buffer-2 textarea statusbar
+                app.buffer-3 textarea statusbar
             ] app.current-tab deref view-switch fill
         ] vstack
     end
@@ -137,8 +138,6 @@ status-bar:
     ui:
         [
             app.status text
-            spacer
-            "Ln 1, Col 1" text
         ] hstack
     end
 end

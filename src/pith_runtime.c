@@ -143,6 +143,7 @@ PithGapBuffer* pith_gapbuf_new(void) {
     gb->buffer = malloc(gb->capacity);
     gb->gap_start = 0;
     gb->gap_end = gb->capacity;
+    gb->scroll_offset = 0;
     return gb;
 }
 
@@ -154,6 +155,7 @@ PithGapBuffer* pith_gapbuf_from_string(const char *str) {
     /* Place content after the gap, cursor at position 0 */
     gb->gap_start = 0;
     gb->gap_end = GAP_BUFFER_MIN_GAP;
+    gb->scroll_offset = 0;
     if (len > 0) {
         memcpy(gb->buffer + gb->gap_end, str, len);
     }
@@ -174,6 +176,7 @@ PithGapBuffer* pith_gapbuf_copy(PithGapBuffer *gb) {
     memcpy(copy->buffer, gb->buffer, gb->capacity);
     copy->gap_start = gb->gap_start;
     copy->gap_end = gb->gap_end;
+    copy->scroll_offset = gb->scroll_offset;
     return copy;
 }
 
@@ -595,6 +598,7 @@ PithValue pith_value_copy(PithValue value) {
         case VAL_VIEW:
         case VAL_DICT:
         case VAL_SIGNAL:
+        case VAL_OUTLINE_NODE:
             /* These are references, don't deep copy */
             return value;
 
@@ -602,6 +606,19 @@ PithValue pith_value_copy(PithValue value) {
             return PITH_GAPBUF(pith_gapbuf_copy(value.as.gapbuf));
     }
     return PITH_NIL();
+}
+
+/* Free an outline node and its children recursively */
+static void pith_outline_node_free(PithOutlineNode *node) {
+    if (!node) return;
+    free(node->label);
+    free(node->icon);
+    if (node->on_click) free(node->on_click);
+    for (size_t i = 0; i < node->child_count; i++) {
+        pith_outline_node_free(node->children[i]);
+    }
+    free(node->children);
+    free(node);
 }
 
 void pith_value_free(PithValue value) {
@@ -623,6 +640,9 @@ void pith_value_free(PithValue value) {
             break;
         case VAL_GAPBUF:
             pith_gapbuf_free(value.as.gapbuf);
+            break;
+        case VAL_OUTLINE_NODE:
+            pith_outline_node_free(value.as.outline_node);
             break;
         default:
             break;
@@ -657,6 +677,9 @@ char* pith_value_to_string(PithValue value) {
             return pith_gapbuf_to_string(value.as.gapbuf);
         case VAL_SIGNAL:
             return pith_value_to_string(value.as.signal->value);
+        case VAL_OUTLINE_NODE:
+            return pith_strdup(value.as.outline_node->label ?
+                value.as.outline_node->label : "[outline-node]");
     }
     return pith_strdup("?");
 }
@@ -875,10 +898,16 @@ void pith_view_free(PithView *view) {
             free(view->as.text.content);
             break;
         case VIEW_TEXTFIELD:
-            pith_gapbuf_free(view->as.textfield.buffer);
+            /* Only free buffer if view owns it (no source signal) */
+            if (!view->as.textfield.source_signal) {
+                pith_gapbuf_free(view->as.textfield.buffer);
+            }
             break;
         case VIEW_TEXTAREA:
-            pith_gapbuf_free(view->as.textarea.buffer);
+            /* Only free buffer if view owns it (no source signal) */
+            if (!view->as.textarea.source_signal) {
+                pith_gapbuf_free(view->as.textarea.buffer);
+            }
             break;
         case VIEW_BUTTON:
             free(view->as.button.label);
@@ -895,6 +924,12 @@ void pith_view_free(PithView *view) {
             break;
         case VIEW_SPACER:
             /* Spacer has no data to free */
+            break;
+        case VIEW_OUTLINE:
+            for (size_t i = 0; i < view->as.outline.root_count; i++) {
+                pith_outline_node_free(view->as.outline.roots[i]);
+            }
+            free(view->as.outline.roots);
             break;
     }
 
@@ -3051,18 +3086,27 @@ static bool builtin_textfield(PithRuntime *rt) {
         /* Create textfield from signal - store reference for blur updates */
         source_signal = a.as.signal;
         PithValue val = pith_signal_get(source_signal);
-        const char *content = "";
+
+        /* If signal contains a string, convert to gap buffer and store back */
         if (PITH_IS_STRING(val)) {
-            content = val.as.string;
-        } else if (PITH_IS_GAPBUF(val)) {
-            char *str = pith_gapbuf_to_string(val.as.gapbuf);
-            view = pith_view_textfield(str, NULL);
-            view->as.textfield.source_signal = source_signal;
-            free(str);
-            return pith_push(rt, PITH_VIEW(view));
+            PithGapBuffer *gb = pith_gapbuf_from_string(val.as.string);
+            pith_signal_set(source_signal, PITH_GAPBUF(gb));
+            val = pith_signal_get(source_signal);
         }
-        view = pith_view_textfield(content, NULL);
-        view->as.textfield.source_signal = source_signal;
+
+        /* Use the gap buffer from the signal directly (signal owns it) */
+        if (PITH_IS_GAPBUF(val)) {
+            view = malloc(sizeof(PithView));
+            memset(view, 0, sizeof(PithView));
+            view->type = VIEW_TEXTFIELD;
+            view->as.textfield.buffer = val.as.gapbuf;  /* Reference, not copy */
+            view->as.textfield.on_change = NULL;
+            view->as.textfield.source_signal = source_signal;
+        } else {
+            /* Fallback for unexpected types */
+            view = pith_view_textfield("", NULL);
+            view->as.textfield.source_signal = source_signal;
+        }
     } else if (PITH_IS_STRING(a)) {
         /* Create textfield from string */
         view = pith_view_textfield(a.as.string, NULL);
@@ -3094,18 +3138,28 @@ static bool builtin_textarea(PithRuntime *rt) {
         /* Create textarea from signal - store reference for blur updates */
         source_signal = a.as.signal;
         PithValue val = pith_signal_get(source_signal);
-        const char *content = "";
+
+        /* If signal contains a string, convert to gap buffer and store back */
         if (PITH_IS_STRING(val)) {
-            content = val.as.string;
-        } else if (PITH_IS_GAPBUF(val)) {
-            char *str = pith_gapbuf_to_string(val.as.gapbuf);
-            view = pith_view_textarea(str, NULL);
-            view->as.textarea.source_signal = source_signal;
-            free(str);
-            return pith_push(rt, PITH_VIEW(view));
+            PithGapBuffer *gb = pith_gapbuf_from_string(val.as.string);
+            pith_signal_set(source_signal, PITH_GAPBUF(gb));
+            val = pith_signal_get(source_signal);
         }
-        view = pith_view_textarea(content, NULL);
-        view->as.textarea.source_signal = source_signal;
+
+        /* Use the gap buffer from the signal directly (signal owns it) */
+        if (PITH_IS_GAPBUF(val)) {
+            view = malloc(sizeof(PithView));
+            memset(view, 0, sizeof(PithView));
+            view->type = VIEW_TEXTAREA;
+            view->as.textarea.buffer = val.as.gapbuf;  /* Reference, not copy */
+            view->as.textarea.on_change = NULL;
+            view->as.textarea.scroll_offset = 0;
+            view->as.textarea.source_signal = source_signal;
+        } else {
+            /* Fallback for unexpected types */
+            view = pith_view_textarea("", NULL);
+            view->as.textarea.source_signal = source_signal;
+        }
     } else if (PITH_IS_STRING(a)) {
         view = pith_view_textarea(a.as.string, NULL);
         pith_value_free(a);
@@ -3306,6 +3360,204 @@ static bool builtin_fill(PithRuntime *rt) {
     }
     v.as.view->style.fill = true;
     return pith_push(rt, v);
+}
+
+/* statusbar: view -> view (with statusbar=true) */
+static bool builtin_statusbar(PithRuntime *rt) {
+    if (!pith_stack_has(rt, 1)) return false;
+    PithValue v = pith_pop(rt);
+    if (!PITH_IS_VIEW(v)) {
+        pith_error(rt, "statusbar requires a view");
+        pith_value_free(v);
+        return false;
+    }
+    v.as.view->style.has_statusbar = true;
+    v.as.view->style.statusbar = true;
+    return pith_push(rt, v);
+}
+
+/* ========================================================================
+   OUTLINE VIEW BUILTINS
+   ======================================================================== */
+
+/* outline-item: ( label -- node ) or ( icon label -- node ) or ( icon label block -- node )
+ * Creates a leaf node for an outline view.
+ * Variants:
+ *   "file.txt" outline-item                    -> leaf with label
+ *   "f" "file.txt" outline-item                -> leaf with icon and label
+ *   "f" "file.txt" do ... end outline-item     -> leaf with icon, label, and click handler
+ */
+static bool builtin_outline_item(PithRuntime *rt) {
+    if (!pith_stack_has(rt, 1)) return false;
+
+    PithOutlineNode *node = malloc(sizeof(PithOutlineNode));
+    memset(node, 0, sizeof(PithOutlineNode));
+
+    /* Check what's on the stack */
+    PithValue top = pith_pop(rt);
+
+    if (PITH_IS_BLOCK(top)) {
+        /* ( icon label block -- node ) */
+        if (!pith_stack_has(rt, 2)) {
+            pith_error(rt, "outline-item with block requires icon and label");
+            free(top.as.block);
+            free(node);
+            return false;
+        }
+        node->on_click = top.as.block;
+        PithValue label = pith_pop(rt);
+        PithValue icon = pith_pop(rt);
+        if (!PITH_IS_STRING(label) || !PITH_IS_STRING(icon)) {
+            pith_error(rt, "outline-item requires string icon and label");
+            free(node->on_click);
+            free(node);
+            pith_value_free(label);
+            pith_value_free(icon);
+            return false;
+        }
+        node->label = label.as.string;
+        node->icon = icon.as.string;
+    } else if (PITH_IS_STRING(top)) {
+        /* Could be ( label -- node ) or ( icon label -- node ) */
+        if (pith_stack_has(rt, 1)) {
+            PithValue maybe_icon = pith_peek(rt);
+            if (PITH_IS_STRING(maybe_icon) && strlen(maybe_icon.as.string) <= 2) {
+                /* Looks like an icon (short string) */
+                pith_pop(rt);
+                node->icon = maybe_icon.as.string;
+                node->label = top.as.string;
+            } else {
+                /* Just a label */
+                node->label = top.as.string;
+            }
+        } else {
+            /* Just a label */
+            node->label = top.as.string;
+        }
+    } else {
+        pith_error(rt, "outline-item requires string label");
+        pith_value_free(top);
+        free(node);
+        return false;
+    }
+
+    return pith_push(rt, PITH_OUTLINE_NODE(node));
+}
+
+/* outline-group: ( label children -- node ) or ( icon label children -- node )
+ * Creates a group node (collapsible) for an outline view.
+ */
+static bool builtin_outline_group(PithRuntime *rt) {
+    if (!pith_stack_has(rt, 2)) return false;
+
+    PithValue children_val = pith_pop(rt);
+    if (!PITH_IS_ARRAY(children_val)) {
+        pith_error(rt, "outline-group requires array of children");
+        pith_value_free(children_val);
+        return false;
+    }
+
+    PithOutlineNode *node = malloc(sizeof(PithOutlineNode));
+    memset(node, 0, sizeof(PithOutlineNode));
+
+    /* Get label and optional icon */
+    PithValue label = pith_pop(rt);
+    if (!PITH_IS_STRING(label)) {
+        pith_error(rt, "outline-group requires string label");
+        pith_value_free(label);
+        pith_value_free(children_val);
+        free(node);
+        return false;
+    }
+    node->label = label.as.string;
+
+    /* Check for icon */
+    if (pith_stack_has(rt, 1)) {
+        PithValue maybe_icon = pith_peek(rt);
+        if (PITH_IS_STRING(maybe_icon) && strlen(maybe_icon.as.string) <= 2) {
+            pith_pop(rt);
+            node->icon = maybe_icon.as.string;
+        }
+    }
+
+    /* Convert array of outline nodes to children */
+    PithArray *arr = children_val.as.array;
+    node->children = malloc(arr->length * sizeof(PithOutlineNode*));
+    node->child_count = 0;
+
+    for (size_t i = 0; i < arr->length; i++) {
+        if (PITH_IS_OUTLINE_NODE(arr->items[i])) {
+            node->children[node->child_count++] = arr->items[i].as.outline_node;
+            arr->items[i].type = VAL_NIL;  /* Prevent double-free */
+        }
+    }
+
+    /* Free the array container (but not the nodes we took) */
+    pith_value_free(children_val);
+
+    return pith_push(rt, PITH_OUTLINE_NODE(node));
+}
+
+/* outline: ( array-of-nodes -- view )
+ * Creates an outline view from an array of root nodes.
+ */
+static bool builtin_outline(PithRuntime *rt) {
+    if (!pith_stack_has(rt, 1)) return false;
+
+    PithValue arr_val = pith_pop(rt);
+    if (!PITH_IS_ARRAY(arr_val)) {
+        pith_error(rt, "outline requires array of nodes");
+        pith_value_free(arr_val);
+        return false;
+    }
+
+    PithView *view = malloc(sizeof(PithView));
+    memset(view, 0, sizeof(PithView));
+    view->type = VIEW_OUTLINE;
+
+    PithArray *arr = arr_val.as.array;
+    view->as.outline.roots = malloc(arr->length * sizeof(PithOutlineNode*));
+    view->as.outline.root_count = 0;
+
+    for (size_t i = 0; i < arr->length; i++) {
+        if (PITH_IS_OUTLINE_NODE(arr->items[i])) {
+            view->as.outline.roots[view->as.outline.root_count++] =
+                arr->items[i].as.outline_node;
+            arr->items[i].type = VAL_NIL;  /* Prevent double-free */
+        }
+    }
+
+    pith_value_free(arr_val);
+    return pith_push(rt, PITH_VIEW(view));
+}
+
+/* icon-color: ( node color -- node )
+ * Sets the icon color on an outline node.
+ */
+static bool builtin_icon_color(PithRuntime *rt) {
+    if (!pith_stack_has(rt, 2)) return false;
+
+    PithValue color_val = pith_pop(rt);
+    PithValue node_val = pith_pop(rt);
+
+    if (!PITH_IS_OUTLINE_NODE(node_val)) {
+        pith_error(rt, "icon-color requires outline node");
+        pith_value_free(color_val);
+        pith_value_free(node_val);
+        return false;
+    }
+
+    if (!PITH_IS_STRING(color_val)) {
+        pith_error(rt, "icon-color requires string color");
+        pith_value_free(color_val);
+        return pith_push(rt, node_val);
+    }
+
+    /* Parse color string */
+    node_val.as.outline_node->icon_color = pith_color_parse(color_val.as.string);
+    pith_value_free(color_val);
+
+    return pith_push(rt, node_val);
 }
 
 /* map: array block -> array */
@@ -3874,6 +4126,13 @@ static BuiltinEntry builtins[] = {
     {"spacer", builtin_spacer},
     {"view-switch", builtin_view_switch},
     {"fill", builtin_fill},
+    {"statusbar", builtin_statusbar},
+
+    /* Outline */
+    {"outline-item", builtin_outline_item},
+    {"outline-group", builtin_outline_group},
+    {"outline", builtin_outline},
+    {"icon-color", builtin_icon_color},
 
     /* Arrays */
     {"first", builtin_first},

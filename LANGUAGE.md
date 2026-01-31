@@ -482,6 +482,13 @@ hstack      # ( array -- view )          # horizontal stack of views
 spacer      # ( -- view )                # expands to fill available space
 view-switch # ( array index -- view )    # select one view from array by index
 fill        # ( view -- view )           # set fill=true on a view
+statusbar   # ( view -- view )           # add status bar to textarea (Ln/Col)
+
+# Outline view (collapsible tree)
+outline-item  # ( [icon] label [block] -- node )  # create leaf node
+outline-group # ( [icon] label children -- node ) # create collapsible group
+outline       # ( array-of-nodes -- view )        # create outline view
+icon-color    # ( node color -- node )            # set icon color
 ```
 
 **Not yet implemented:**
@@ -525,27 +532,6 @@ Supports all textfield keys plus:
 - Enter to insert newlines
 
 When bound to a signal, changes are persisted when focus is lost.
-
-**Example - tabbed editor:**
-```
-app:
-    parent: root
-    current-tab: 0 signal
-    buffer-1: "File 1 content" signal
-    buffer-2: "File 2 content" signal
-
-    ui:
-        [
-            "File 1" do 0 app.current-tab! end button
-            "File 2" do 1 app.current-tab! end button
-        ] hstack
-        [
-            app.buffer-1 textarea
-            app.buffer-2 textarea
-        ] app.current-tab deref view-switch fill
-    end
-end
-```
 
 ### Button ✓
 
@@ -641,6 +627,70 @@ Commonly used with `view-switch` to make the selected view fill its container:
 ```
 
 Without `fill`, views only take their natural size. With `fill`, they expand to use all remaining space.
+
+### Statusbar ✓
+
+Adds a status bar to a textarea showing the current cursor position (line and column).
+
+```
+my-signal textarea statusbar     # textarea with "Ln X, Col Y" at bottom
+```
+
+The status bar appears at the bottom of the textarea and updates automatically as the cursor moves.
+
+### Outline ✓
+
+A collapsible tree view for hierarchical data like file browsers, table of contents, etc.
+
+**Creating outline nodes:**
+
+```
+outline-item    # ( label -- node ) or ( icon label -- node ) or ( icon label block -- node )
+outline-group   # ( label children -- node ) or ( icon label children -- node )
+outline         # ( array-of-nodes -- view )
+icon-color      # ( node color -- node )
+```
+
+**Example - file browser:**
+
+```
+ui:
+    [
+        "d" "src" [
+            "f" "main.c" do "clicked main.c" print end outline-item
+            "f" "utils.c" outline-item
+            "d" "components" [
+                "f" "button.c" outline-item
+                "f" "input.c" outline-item
+            ] outline-group
+        ] outline-group
+        "f" "README.md" outline-item
+    ] outline
+end
+```
+
+**Renders as:**
+
+```
+v src
+    f main.c
+    f utils.c
+    v components
+        f button.c
+        f input.c
+  f README.md
+```
+
+**Behavior:**
+- Click on a group (`v`/`>`) to toggle collapse/expand
+- Click on a leaf item with an `on_click` block to execute it
+- Groups show `v` when expanded, `>` when collapsed
+- Indentation is 2 spaces per level
+
+**Icons:**
+- First argument to `outline-item` or `outline-group` can be a short string (1-2 chars) used as an icon
+- Common convention: `"d"` for directories, `"f"` for files
+- Use `icon-color` to set the icon color: `node "#61afef" icon-color`
 
 ## Style Slots (Cascading) ✓
 

@@ -271,6 +271,13 @@ int main(int argc, char *argv[]) {
                             pith_execute_block(rt, hit->as.button.on_click);
                         }
                         pith_ui_set_focus(ui, NULL);
+                    } else if (hit && hit->type == VIEW_OUTLINE) {
+                        /* Handle outline click - toggle collapse or execute on_click */
+                        PithOutlineNode *node = pith_ui_outline_click(hit, event.as.click.y);
+                        if (node && node->on_click) {
+                            pith_execute_block(rt, node->on_click);
+                        }
+                        pith_ui_set_focus(ui, NULL);
                     } else {
                         pith_ui_set_focus(ui, NULL);
                     }
@@ -282,7 +289,7 @@ int main(int argc, char *argv[]) {
 
             /* Check for dirty signals and re-render UI if needed */
             if (pith_runtime_has_dirty_signals(rt)) {
-                /* Clear focus before freeing old view */
+                /* Clear focus before freeing old view (but remember signal for restoration) */
                 pith_ui_set_focus(ui, NULL);
 
                 /* Free old view */
@@ -292,6 +299,8 @@ int main(int argc, char *argv[]) {
                 }
                 /* Rebuild view tree */
                 pith_runtime_mount_ui(rt);
+                /* Restore focus to view with same signal */
+                pith_ui_restore_focus(ui, rt->current_view);
                 /* Clear dirty flags */
                 pith_runtime_clear_dirty(rt);
             }
