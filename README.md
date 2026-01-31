@@ -1,10 +1,40 @@
 # Pith
 
-A minimal, stack-based editor runtime where everything is a dictionary of words.
+A minimal, stack-based UI runtime where everything is a dictionary of words. Pith combines the simplicity of Forth-like languages with reactive UI capabilities.
+
+## Features
+
+- **Stack-based execution** - Simple postfix notation, no complex syntax
+- **Dictionary-based components** - Everything is a dictionary of slots with inheritance
+- **Reactive signals** - Automatic UI updates when state changes
+- **Cell-based rendering** - Text-mode UI with colors and layout primitives
+- **Cross-platform core** - Platform-independent interpreter with pluggable UI
+
+## Quick Example
+
+```
+app:
+    parent: root
+    count: 0 signal
+
+    ui:
+        [
+            "Count: " text
+            count to-string text
+            "+" do count 1 + count! end button
+            "-" do count 1 - count! end button
+        ] hstack
+    end
+end
+
+ui:
+    app
+end
+```
+
+This creates a counter with + and - buttons. Clicking them updates the count reactively.
 
 ## Architecture
-
-Pith is split into two independent components:
 
 ```
 ┌─────────────────────────────────────────────────────┐
@@ -13,7 +43,7 @@ Pith is split into two independent components:
 │                                                     │
 │  - Renders Views to screen                          │
 │  - Captures input events                            │
-│  - Calls into runtime when events occur             │
+│  - Handles focus and text input                     │
 └─────────────────────┬───────────────────────────────┘
                       │
                       │  View tree + Events
@@ -24,31 +54,10 @@ Pith is split into two independent components:
 │                                                     │
 │  - Parses .pith files                               │
 │  - Maintains stack and dictionaries                 │
-│  - Executes words                                   │
+│  - Executes words, manages signals                  │
 │  - Produces View trees for UI                       │
 └─────────────────────────────────────────────────────┘
 ```
-
-### pith_runtime (pith_runtime.h / pith_runtime.c)
-
-The interpreter. Pure C with no platform dependencies. Responsibilities:
-
-- Parse .pith dictionary files
-- Manage the value stack
-- Manage dictionary hierarchy (slots, parent lookup)
-- Execute words
-- Produce a View tree when `ui` slots are evaluated
-- Handle file operations (via callbacks for portability)
-
-### pith_ui (pith_ui.h / pith_ui.c)
-
-The renderer. Currently uses raylib, but designed to be replaceable. Responsibilities:
-
-- Initialize window
-- Render View trees (text, vstack, hstack, etc.)
-- Capture keyboard/mouse input
-- Translate input to runtime events
-- Main loop
 
 ## Building
 
@@ -56,56 +65,98 @@ Requires raylib. On macOS with Homebrew:
 
 ```bash
 brew install raylib
-cd pith
 make
 ```
 
 ## Running
 
 ```bash
-./pith                    # Opens current directory
-./pith /path/to/project   # Opens specific project
+./pith                      # Opens current directory as project
+./pith path/to/project      # Opens specific project directory
+./pith script.pith          # Runs a single .pith file
+./pith -d path/to/project   # Debug mode (shows execution details)
 ```
 
-## File Structure
+## Project Structure
 
 ```
-/your-project
-    /pith
-        runtime.pith      # Main dictionary, defines UI
-        /agents
-            outline.pith  # Agent definitions
-    /docs
-        your-files.md
+your-project/
+    pith/
+        runtime.pith      # Main dictionary, defines UI and logic
+    other-files/
+        ...
 ```
+
+When you run `./pith your-project`, it loads `your-project/pith/runtime.pith`.
 
 ## Language Overview
 
-See `docs/LANGUAGE.md` for the full language reference.
+See [language.md](language.md) for the full language reference.
 
-Quick example:
+### Core Concepts
 
+**Stack-based execution:**
 ```
-editor:
-    parent: component
+1 2 +           # pushes 1, pushes 2, adds them -> 3
+"hello" print   # pushes string, prints it
+```
 
-    buffer: ""
-    cursor: 0
+**Dictionaries and slots:**
+```
+my-component:
+    parent: root
+    name: "Alice"
 
     ui:
-        buffer cursor text-view
-    end
-
-    on-key:
-        key "cmd-s" = if
-            buffer file.path write
-        else
-            key cursor insert
-            buffer set
-        end
+        name text
     end
 end
 ```
+
+**Signals for reactive state:**
+```
+counter: 0 signal           # create reactive state
+counter                     # read value (auto-unwraps)
+42 counter!                 # write value (triggers re-render)
+```
+
+**UI primitives:**
+```
+"Hello" text                # text label
+["a" text "b" text] hstack  # horizontal layout
+["x" text "y" text] vstack  # vertical layout
+spacer                      # flexible space
+"Click" do ... end button   # clickable button
+"" textfield                # editable text input
+```
+
+### Lifecycle
+
+Pith applications have four optional lifecycle slots:
+
+```
+init:   # runs first - setup
+ui:     # mounts UI (opens window if view produced)
+main:   # runs after UI closes
+exit:   # cleanup
+```
+
+## What's Implemented
+
+- Stack operations (dup, drop, swap, over, rot)
+- Arithmetic (+, -, *, /, mod, abs, min, max)
+- Comparison (=, !=, <, >, <=, >=)
+- Logic (and, or, not)
+- Strings (length, concat, split, join, trim, substring, etc.)
+- Arrays (map, filter, reduce, each, find, sort, etc.)
+- Maps (new-map, get, set, keys, values, etc.)
+- Gap buffers for text editing
+- Signals for reactive state
+- File I/O (file-read, file-write, file-exists, dir-list)
+- JSON parsing (to-json, parse-json)
+- UI: text, textfield, button, vstack, hstack, spacer
+- Styling: colors, backgrounds, borders, padding, gap
+- Control flow: if/else, do blocks
 
 ## License
 
