@@ -1,0 +1,19 @@
+# Textarea test example
+# Click on textarea to focus, then:
+# - Arrow keys to navigate
+# - Enter to insert newlines
+# - Home/End to go to line start/end
+# - Up/Down to move between lines
+# - Backspace/Delete to delete text
+# - Escape to unfocus
+
+root:
+    padding: 1
+
+    ui:
+        [
+            "Multiline Textarea Test:" text
+            "Line 1: Hello World\nLine 2: This is a multiline textarea\nLine 3: Use arrow keys to navigate\nLine 4: Press Enter for new lines\nLine 5: Home/End for line boundaries" textarea
+        ] vstack
+    end
+end

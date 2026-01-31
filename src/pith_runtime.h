@@ -255,7 +255,22 @@ void pith_gapbuf_delete(PithGapBuffer *gb, int n);
 void pith_gapbuf_move(PithGapBuffer *gb, int delta);
 void pith_gapbuf_goto(PithGapBuffer *gb, size_t pos);
 size_t pith_gapbuf_cursor(PithGapBuffer *gb);
+char pith_gapbuf_char_at(PithGapBuffer *gb, size_t pos);
 char* pith_gapbuf_to_string(PithGapBuffer *gb);
+
+/* Line navigation helpers for multiline text editing */
+size_t pith_gapbuf_length(PithGapBuffer *gb);
+size_t pith_gapbuf_cursor_line(PithGapBuffer *gb);
+size_t pith_gapbuf_cursor_column(PithGapBuffer *gb);
+size_t pith_gapbuf_line_start(PithGapBuffer *gb, size_t line);
+size_t pith_gapbuf_line_end(PithGapBuffer *gb, size_t line);
+size_t pith_gapbuf_line_length(PithGapBuffer *gb, size_t line);
+size_t pith_gapbuf_line_count(PithGapBuffer *gb);
+void pith_gapbuf_move_up(PithGapBuffer *gb, int n);
+void pith_gapbuf_move_down(PithGapBuffer *gb, int n);
+void pith_gapbuf_line_home(PithGapBuffer *gb);
+void pith_gapbuf_line_end_move(PithGapBuffer *gb);
+size_t pith_gapbuf_pos_from_line_col(PithGapBuffer *gb, size_t line, size_t col);
 
 /* ========================================================================
    SIGNAL HELPERS
@@ -278,6 +293,7 @@ void pith_runtime_clear_dirty(PithRuntime *rt);
 
 PithView* pith_view_text(const char *content);
 PithView* pith_view_textfield(const char *content, PithBlock *on_change);
+PithView* pith_view_textarea(const char *content, PithBlock *on_change);
 PithView* pith_view_button(const char *label, PithBlock *on_click);
 PithView* pith_view_vstack(PithView **children, size_t count);
 PithView* pith_view_hstack(PithView **children, size_t count);

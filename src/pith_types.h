@@ -114,6 +114,7 @@ struct PithSignal {
 typedef enum {
     VIEW_TEXT,
     VIEW_TEXTFIELD,
+    VIEW_TEXTAREA,
     VIEW_BUTTON,
     VIEW_TEXTURE,
     VIEW_VSTACK,
@@ -166,7 +167,15 @@ struct PithView {
             PithGapBuffer *buffer;
             PithBlock *on_change;
         } textfield;
-        
+
+        /* VIEW_TEXTAREA */
+        struct {
+            PithGapBuffer *buffer;
+            PithBlock *on_change;
+            int scroll_offset;    /* First visible line for scrolling */
+            int visible_height;   /* Cached visible height from last render */
+        } textarea;
+
         /* VIEW_BUTTON */
         struct {
             char *label;

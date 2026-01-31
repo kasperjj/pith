@@ -448,7 +448,40 @@ static void measure_view(PithUI *ui, PithView *view, int *out_w, int *out_h) {
             *out_h = 1;
             break;
         }
-            
+
+        case VIEW_TEXTAREA: {
+            /* If fill is set, return 0 so it expands to fill available space */
+            if (view->style.fill) {
+                *out_w = 0;
+                *out_h = 0;
+                break;
+            }
+
+            /* Measure based on gap buffer content */
+            int max_width = 20;  /* Minimum width */
+            int line_count = 3;  /* Minimum height */
+            if (view->as.textarea.buffer) {
+                size_t total_lines = pith_gapbuf_line_count(view->as.textarea.buffer);
+                line_count = total_lines > 3 ? (int)total_lines : 3;
+
+                /* Find max line width */
+                for (size_t i = 0; i < total_lines; i++) {
+                    size_t line_len = pith_gapbuf_line_length(view->as.textarea.buffer, i);
+                    if ((int)line_len + 2 > max_width) {
+                        max_width = (int)line_len + 2;  /* +2 for padding */
+                    }
+                }
+            }
+            *out_w = max_width;
+            /* Use style.height if set, otherwise content height */
+            if (view->style.has_height && view->style.height > 0) {
+                *out_h = view->style.height;
+            } else {
+                *out_h = line_count;
+            }
+            break;
+        }
+
         case VIEW_BUTTON:
             *out_w = view->as.button.label ? strlen(view->as.button.label) + 4 : 6;
             *out_h = 1;
@@ -605,7 +638,8 @@ static PithView* hit_test_internal(PithUI *ui, PithView *view,
     }
 
     /* Return this view if it's a focusable type */
-    if (view->type == VIEW_TEXTFIELD || view->type == VIEW_BUTTON) {
+    if (view->type == VIEW_TEXTFIELD || view->type == VIEW_TEXTAREA ||
+        view->type == VIEW_BUTTON) {
         return view;
     }
 
@@ -700,7 +734,72 @@ static void render_view_internal(PithUI *ui, PithView *view,
             }
             break;
         }
-            
+
+        case VIEW_TEXTAREA: {
+            /* Draw textarea with light background */
+            uint32_t field_bg = view->style.has_background ? bg : 0xf1f3f5ff; /* gray 1 */
+            uint32_t field_fg = view->style.has_color ? fg : 0x212529ff; /* gray 9 */
+
+            render_rect(ui, inner_x, inner_y, inner_w, inner_h, field_bg);
+            render_border(ui, inner_x, inner_y, inner_w, inner_h, "all",
+                          ui->config.color_border);
+
+            /* Render text line by line */
+            if (view->as.textarea.buffer) {
+                PithGapBuffer *buf = view->as.textarea.buffer;
+                size_t total_lines = pith_gapbuf_line_count(buf);
+                int scroll_offset = view->as.textarea.scroll_offset;
+                int visible_lines = inner_h;
+
+                /* Cache visible height for scroll calculations */
+                view->as.textarea.visible_height = visible_lines;
+
+                /* Render each visible line */
+                for (int line_idx = 0; line_idx < visible_lines; line_idx++) {
+                    size_t line_num = scroll_offset + line_idx;
+                    if (line_num >= total_lines) break;
+
+                    /* Extract line content */
+                    size_t line_start = pith_gapbuf_line_start(buf, line_num);
+                    size_t line_len = pith_gapbuf_line_length(buf, line_num);
+
+                    /* Build line string - fit within available width */
+                    int max_chars = inner_w - 2;  /* Leave space for padding */
+                    if (max_chars < 0) max_chars = 0;
+                    size_t chars_to_copy = line_len < (size_t)max_chars ? line_len : (size_t)max_chars;
+
+                    char *line_buf = malloc(chars_to_copy + 1);
+                    for (size_t i = 0; i < chars_to_copy; i++) {
+                        line_buf[i] = pith_gapbuf_char_at(buf, line_start + i);
+                    }
+                    line_buf[chars_to_copy] = '\0';
+
+                    render_text(ui, line_buf, inner_x + 1, inner_y + line_idx, field_fg, false);
+                    free(line_buf);
+                }
+
+                /* Draw cursor if focused */
+                if (ui->focused_view == view) {
+                    size_t cursor_line = pith_gapbuf_cursor_line(buf);
+                    size_t cursor_col = pith_gapbuf_cursor_column(buf);
+
+                    /* Check if cursor is in visible area */
+                    if ((int)cursor_line >= scroll_offset &&
+                        (int)cursor_line < scroll_offset + visible_lines) {
+                        int cursor_screen_y = inner_y + (int)cursor_line - scroll_offset;
+                        int cursor_screen_x = inner_x + 1 + (int)cursor_col;
+
+                        /* Draw cursor as a vertical bar */
+                        int px = cursor_screen_x * ui->cell_width;
+                        int py = cursor_screen_y * ui->cell_height;
+                        DrawRectangle(px, py, 2, ui->cell_height,
+                                     rgba_to_color(field_fg));
+                    }
+                }
+            }
+            break;
+        }
+
         case VIEW_BUTTON: {
             /* Draw button with brackets */
             char buf[256];
@@ -883,20 +982,56 @@ PithView* pith_ui_get_focus(PithUI *ui) {
 }
 
 /* ========================================================================
-   TEXTFIELD INPUT HANDLING
+   TEXTFIELD / TEXTAREA INPUT HANDLING
    ======================================================================== */
 
+/* Update scroll offset to keep cursor visible */
+static void update_textarea_scroll(PithView *view) {
+    if (view->type != VIEW_TEXTAREA || !view->as.textarea.buffer) return;
+
+    PithGapBuffer *buf = view->as.textarea.buffer;
+    size_t cursor_line = pith_gapbuf_cursor_line(buf);
+    int scroll_offset = view->as.textarea.scroll_offset;
+
+    /* Get visible height: use cached value from render, or style, or default */
+    int visible_lines = 3;
+    if (view->as.textarea.visible_height > 0) {
+        visible_lines = view->as.textarea.visible_height;
+    } else if (view->style.has_height && view->style.height > 0) {
+        visible_lines = view->style.height;
+    }
+
+    /* Adjust scroll to keep cursor visible */
+    if ((int)cursor_line < scroll_offset) {
+        /* Cursor is above visible area */
+        view->as.textarea.scroll_offset = (int)cursor_line;
+    } else if ((int)cursor_line >= scroll_offset + visible_lines) {
+        /* Cursor is below visible area */
+        view->as.textarea.scroll_offset = (int)cursor_line - visible_lines + 1;
+    }
+}
+
 bool pith_ui_handle_textfield_input(PithUI *ui, PithEvent event) {
-    if (!ui->focused_view || ui->focused_view->type != VIEW_TEXTFIELD) {
+    if (!ui->focused_view) return false;
+
+    PithViewType type = ui->focused_view->type;
+    bool is_textfield = (type == VIEW_TEXTFIELD);
+    bool is_textarea = (type == VIEW_TEXTAREA);
+
+    if (!is_textfield && !is_textarea) {
         return false;
     }
 
-    PithGapBuffer *buf = ui->focused_view->as.textfield.buffer;
+    /* Get the gap buffer from whichever type it is */
+    PithGapBuffer *buf = is_textfield
+        ? ui->focused_view->as.textfield.buffer
+        : ui->focused_view->as.textarea.buffer;
     if (!buf) return false;
 
     if (event.type == EVENT_TEXT_INPUT) {
         /* Insert typed character */
         pith_gapbuf_insert(buf, event.as.text_input.text);
+        if (is_textarea) update_textarea_scroll(ui->focused_view);
         return true;
     }
 
@@ -906,6 +1041,7 @@ bool pith_ui_handle_textfield_input(PithUI *ui, PithEvent event) {
         /* Backspace - delete character before cursor */
         if (key == KEY_BACKSPACE) {
             pith_gapbuf_delete(buf, -1);
+            if (is_textarea) update_textarea_scroll(ui->focused_view);
             return true;
         }
 
@@ -918,28 +1054,57 @@ bool pith_ui_handle_textfield_input(PithUI *ui, PithEvent event) {
         /* Left arrow - move cursor left */
         if (key == KEY_LEFT) {
             pith_gapbuf_move(buf, -1);
+            if (is_textarea) update_textarea_scroll(ui->focused_view);
             return true;
         }
 
         /* Right arrow - move cursor right */
         if (key == KEY_RIGHT) {
             pith_gapbuf_move(buf, 1);
+            if (is_textarea) update_textarea_scroll(ui->focused_view);
             return true;
         }
 
-        /* Home - move to start */
+        /* Up arrow - move cursor up (textarea only) */
+        if (key == KEY_UP && is_textarea) {
+            pith_gapbuf_move_up(buf, 1);
+            update_textarea_scroll(ui->focused_view);
+            return true;
+        }
+
+        /* Down arrow - move cursor down (textarea only) */
+        if (key == KEY_DOWN && is_textarea) {
+            pith_gapbuf_move_down(buf, 1);
+            update_textarea_scroll(ui->focused_view);
+            return true;
+        }
+
+        /* Home - move to line start (textarea) or buffer start (textfield) */
         if (key == KEY_HOME) {
-            pith_gapbuf_goto(buf, 0);
+            if (is_textarea) {
+                pith_gapbuf_line_home(buf);
+                update_textarea_scroll(ui->focused_view);
+            } else {
+                pith_gapbuf_goto(buf, 0);
+            }
             return true;
         }
 
-        /* End - move to end (need length function) */
+        /* End - move to line end (textarea) or buffer end (textfield) */
         if (key == KEY_END) {
-            char *str = pith_gapbuf_to_string(buf);
-            if (str) {
-                pith_gapbuf_goto(buf, strlen(str));
-                free(str);
+            if (is_textarea) {
+                pith_gapbuf_line_end_move(buf);
+            } else {
+                size_t len = pith_gapbuf_length(buf);
+                pith_gapbuf_goto(buf, len);
             }
+            return true;
+        }
+
+        /* Enter - insert newline (textarea only) */
+        if (key == KEY_ENTER && is_textarea) {
+            pith_gapbuf_insert(buf, "\n");
+            update_textarea_scroll(ui->focused_view);
             return true;
         }
 

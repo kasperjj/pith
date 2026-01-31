@@ -255,7 +255,7 @@ int main(int argc, char *argv[]) {
                 /* Handle click events for focus and buttons */
                 if (event.type == EVENT_CLICK && view) {
                     PithView *hit = pith_ui_hit_test(ui, view, event.as.click.x, event.as.click.y);
-                    if (hit && hit->type == VIEW_TEXTFIELD) {
+                    if (hit && (hit->type == VIEW_TEXTFIELD || hit->type == VIEW_TEXTAREA)) {
                         pith_ui_set_focus(ui, hit);
                     } else if (hit && hit->type == VIEW_BUTTON) {
                         /* Execute button's on_click block */

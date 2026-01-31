@@ -178,7 +178,7 @@ PithGapBuffer* pith_gapbuf_copy(PithGapBuffer *gb) {
 }
 
 /* Get the content length (excluding the gap) */
-static size_t pith_gapbuf_length(PithGapBuffer *gb) {
+size_t pith_gapbuf_length(PithGapBuffer *gb) {
     return gb->capacity - (gb->gap_end - gb->gap_start);
 }
 
@@ -304,6 +304,141 @@ char* pith_gapbuf_to_string(PithGapBuffer *gb) {
     str[len] = '\0';
 
     return str;
+}
+
+/* ========================================================================
+   LINE NAVIGATION HELPERS (for multiline text editing)
+   ======================================================================== */
+
+/* Get the line number at cursor position (0-indexed) */
+size_t pith_gapbuf_cursor_line(PithGapBuffer *gb) {
+    size_t cursor = pith_gapbuf_cursor(gb);
+    size_t line = 0;
+    for (size_t i = 0; i < cursor; i++) {
+        if (pith_gapbuf_char_at(gb, i) == '\n') {
+            line++;
+        }
+    }
+    return line;
+}
+
+/* Get the column at cursor position (0-indexed) */
+size_t pith_gapbuf_cursor_column(PithGapBuffer *gb) {
+    size_t cursor = pith_gapbuf_cursor(gb);
+    size_t col = 0;
+    /* Scan backward to find start of line */
+    for (size_t i = cursor; i > 0; i--) {
+        if (pith_gapbuf_char_at(gb, i - 1) == '\n') {
+            break;
+        }
+        col++;
+    }
+    return col;
+}
+
+/* Get position of start of line n (0-indexed) */
+size_t pith_gapbuf_line_start(PithGapBuffer *gb, size_t line) {
+    size_t len = pith_gapbuf_length(gb);
+    size_t current_line = 0;
+    size_t pos = 0;
+
+    while (pos < len && current_line < line) {
+        if (pith_gapbuf_char_at(gb, pos) == '\n') {
+            current_line++;
+        }
+        pos++;
+    }
+    return pos;
+}
+
+/* Get position of end of line n (position of \n or buffer end) */
+size_t pith_gapbuf_line_end(PithGapBuffer *gb, size_t line) {
+    size_t start = pith_gapbuf_line_start(gb, line);
+    size_t len = pith_gapbuf_length(gb);
+    size_t pos = start;
+
+    while (pos < len && pith_gapbuf_char_at(gb, pos) != '\n') {
+        pos++;
+    }
+    return pos;
+}
+
+/* Get length of line n (excluding newline) */
+size_t pith_gapbuf_line_length(PithGapBuffer *gb, size_t line) {
+    size_t start = pith_gapbuf_line_start(gb, line);
+    size_t end = pith_gapbuf_line_end(gb, line);
+    return end - start;
+}
+
+/* Count total lines in the buffer */
+size_t pith_gapbuf_line_count(PithGapBuffer *gb) {
+    size_t len = pith_gapbuf_length(gb);
+    size_t lines = 1;  /* At least one line */
+    for (size_t i = 0; i < len; i++) {
+        if (pith_gapbuf_char_at(gb, i) == '\n') {
+            lines++;
+        }
+    }
+    return lines;
+}
+
+/* Move cursor up n lines, preserving column position */
+void pith_gapbuf_move_up(PithGapBuffer *gb, int n) {
+    if (n <= 0) return;
+
+    size_t current_line = pith_gapbuf_cursor_line(gb);
+    size_t current_col = pith_gapbuf_cursor_column(gb);
+
+    if (current_line == 0) return;  /* Already at first line */
+
+    size_t target_line = current_line > (size_t)n ? current_line - n : 0;
+    size_t target_line_len = pith_gapbuf_line_length(gb, target_line);
+    size_t target_col = current_col < target_line_len ? current_col : target_line_len;
+
+    size_t new_pos = pith_gapbuf_line_start(gb, target_line) + target_col;
+    pith_gapbuf_goto(gb, new_pos);
+}
+
+/* Move cursor down n lines, preserving column position */
+void pith_gapbuf_move_down(PithGapBuffer *gb, int n) {
+    if (n <= 0) return;
+
+    size_t current_line = pith_gapbuf_cursor_line(gb);
+    size_t current_col = pith_gapbuf_cursor_column(gb);
+    size_t total_lines = pith_gapbuf_line_count(gb);
+
+    if (current_line >= total_lines - 1) return;  /* Already at last line */
+
+    size_t target_line = current_line + n;
+    if (target_line >= total_lines) target_line = total_lines - 1;
+
+    size_t target_line_len = pith_gapbuf_line_length(gb, target_line);
+    size_t target_col = current_col < target_line_len ? current_col : target_line_len;
+
+    size_t new_pos = pith_gapbuf_line_start(gb, target_line) + target_col;
+    pith_gapbuf_goto(gb, new_pos);
+}
+
+/* Move cursor to start of current line */
+void pith_gapbuf_line_home(PithGapBuffer *gb) {
+    size_t current_line = pith_gapbuf_cursor_line(gb);
+    size_t line_start = pith_gapbuf_line_start(gb, current_line);
+    pith_gapbuf_goto(gb, line_start);
+}
+
+/* Move cursor to end of current line */
+void pith_gapbuf_line_end_move(PithGapBuffer *gb) {
+    size_t current_line = pith_gapbuf_cursor_line(gb);
+    size_t line_end = pith_gapbuf_line_end(gb, current_line);
+    pith_gapbuf_goto(gb, line_end);
+}
+
+/* Convert (line, col) to buffer position */
+size_t pith_gapbuf_pos_from_line_col(PithGapBuffer *gb, size_t line, size_t col) {
+    size_t line_start = pith_gapbuf_line_start(gb, line);
+    size_t line_len = pith_gapbuf_line_length(gb, line);
+    size_t actual_col = col < line_len ? col : line_len;
+    return line_start + actual_col;
 }
 
 /* ========================================================================
@@ -693,6 +828,16 @@ PithView* pith_view_textfield(const char *content, PithBlock *on_change) {
     return view;
 }
 
+PithView* pith_view_textarea(const char *content, PithBlock *on_change) {
+    PithView *view = malloc(sizeof(PithView));
+    memset(view, 0, sizeof(PithView));
+    view->type = VIEW_TEXTAREA;
+    view->as.textarea.buffer = pith_gapbuf_from_string(content ? content : "");
+    view->as.textarea.on_change = on_change;
+    view->as.textarea.scroll_offset = 0;
+    return view;
+}
+
 PithView* pith_view_button(const char *label, PithBlock *on_click) {
     PithView *view = malloc(sizeof(PithView));
     memset(view, 0, sizeof(PithView));
@@ -724,13 +869,16 @@ PithView* pith_view_hstack(PithView **children, size_t count) {
 
 void pith_view_free(PithView *view) {
     if (!view) return;
-    
+
     switch (view->type) {
         case VIEW_TEXT:
             free(view->as.text.content);
             break;
         case VIEW_TEXTFIELD:
             pith_gapbuf_free(view->as.textfield.buffer);
+            break;
+        case VIEW_TEXTAREA:
+            pith_gapbuf_free(view->as.textarea.buffer);
             break;
         case VIEW_BUTTON:
             free(view->as.button.label);
@@ -749,7 +897,7 @@ void pith_view_free(PithView *view) {
             /* Spacer has no data to free */
             break;
     }
-    
+
     if (view->style.has_border) {
         free(view->style.border);
     }
@@ -2916,6 +3064,29 @@ static bool builtin_textfield(PithRuntime *rt) {
     return pith_push(rt, PITH_VIEW(view));
 }
 
+static bool builtin_textarea(PithRuntime *rt) {
+    if (!pith_stack_has(rt, 1)) return false;
+    PithValue a = pith_pop(rt);
+
+    PithView *view = NULL;
+    if (PITH_IS_STRING(a)) {
+        view = pith_view_textarea(a.as.string, NULL);
+    } else if (PITH_IS_GAPBUF(a)) {
+        view = malloc(sizeof(PithView));
+        memset(view, 0, sizeof(PithView));
+        view->type = VIEW_TEXTAREA;
+        view->as.textarea.buffer = pith_gapbuf_copy(a.as.gapbuf);
+        view->as.textarea.on_change = NULL;
+        view->as.textarea.scroll_offset = 0;
+    } else {
+        pith_error(rt, "textarea requires string or gapbuf");
+        return false;
+    }
+
+    pith_value_free(a);
+    return pith_push(rt, PITH_VIEW(view));
+}
+
 static bool builtin_signal(PithRuntime *rt) {
     if (!pith_stack_has(rt, 1)) return false;
     PithValue initial = pith_pop(rt);
@@ -3568,6 +3739,7 @@ static BuiltinEntry builtins[] = {
     /* UI */
     {"text", builtin_text},
     {"textfield", builtin_textfield},
+    {"textarea", builtin_textarea},
     {"vstack", builtin_vstack},
 
     /* Signals */

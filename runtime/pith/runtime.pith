@@ -110,9 +110,10 @@ end
 # Main content area
 content-area:
     parent: root
-    
+    fill: true
+
     ui:
-        app.buffer text
+        app.buffer textarea
     end
 end
 
