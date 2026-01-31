@@ -16,7 +16,8 @@ end
 app:
     parent: root
 
-    # State
+    # State (using signals for reactivity)
+    count: 0 signal
     buffer: "Welcome to Pith!\n\nThis is a minimal, stack-based editor runtime.\n\nEdit this file to change the UI."
     status: "Ready"
 
@@ -24,16 +25,32 @@ app:
     ui:
         [
             header
+            counter-demo
             editor-area
             status-bar
         ] vstack
     end
-    
+
     # Event handlers
     on-key:
         key "cmd-q" = if
             "Goodbye!" print
         end
+    end
+end
+
+# Counter demo to test signals
+counter-demo:
+    parent: root
+    background: "gray 2"
+
+    ui:
+        [
+            "Count: " text
+            app.count to-string text
+            "+" do app.count 1 + app.count! end button
+            "-" do app.count 1 - app.count! end button
+        ] hstack
     end
 end
 

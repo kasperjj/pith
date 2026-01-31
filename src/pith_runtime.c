@@ -307,6 +307,64 @@ char* pith_gapbuf_to_string(PithGapBuffer *gb) {
 }
 
 /* ========================================================================
+   SIGNAL HELPERS
+   ======================================================================== */
+
+PithSignal* pith_signal_new(PithRuntime *rt, PithValue initial) {
+    PithSignal *sig = malloc(sizeof(PithSignal));
+    sig->value = initial;
+    sig->subscribers = NULL;
+    sig->subscriber_count = 0;
+    sig->subscriber_capacity = 0;
+    sig->dirty = false;
+
+    /* Register signal with runtime for dirty checking */
+    if (rt) {
+        if (rt->signal_count >= rt->signal_capacity) {
+            rt->signal_capacity = rt->signal_capacity ? rt->signal_capacity * 2 : 8;
+            rt->all_signals = realloc(rt->all_signals, rt->signal_capacity * sizeof(PithSignal*));
+        }
+        rt->all_signals[rt->signal_count++] = sig;
+    }
+
+    return sig;
+}
+
+void pith_signal_free(PithSignal *sig) {
+    if (!sig) return;
+    pith_value_free(sig->value);
+    free(sig->subscribers);
+    free(sig);
+}
+
+void pith_signal_set(PithSignal *sig, PithValue value) {
+    if (!sig) return;
+    pith_value_free(sig->value);
+    sig->value = value;
+    sig->dirty = true;
+}
+
+PithValue pith_signal_get(PithSignal *sig) {
+    if (!sig) return PITH_NIL();
+    return sig->value;
+}
+
+bool pith_runtime_has_dirty_signals(PithRuntime *rt) {
+    for (size_t i = 0; i < rt->signal_count; i++) {
+        if (rt->all_signals[i]->dirty) {
+            return true;
+        }
+    }
+    return false;
+}
+
+void pith_runtime_clear_dirty(PithRuntime *rt) {
+    for (size_t i = 0; i < rt->signal_count; i++) {
+        rt->all_signals[i]->dirty = false;
+    }
+}
+
+/* ========================================================================
    MAP HELPERS
    ======================================================================== */
 
@@ -401,6 +459,7 @@ PithValue pith_value_copy(PithValue value) {
         
         case VAL_VIEW:
         case VAL_DICT:
+        case VAL_SIGNAL:
             /* These are references, don't deep copy */
             return value;
 
@@ -461,6 +520,8 @@ char* pith_value_to_string(PithValue value) {
             return pith_strdup(value.as.dict->name ? value.as.dict->name : "[dict]");
         case VAL_GAPBUF:
             return pith_gapbuf_to_string(value.as.gapbuf);
+        case VAL_SIGNAL:
+            return pith_value_to_string(value.as.signal->value);
     }
     return pith_strdup("?");
 }
@@ -2855,6 +2916,43 @@ static bool builtin_textfield(PithRuntime *rt) {
     return pith_push(rt, PITH_VIEW(view));
 }
 
+static bool builtin_signal(PithRuntime *rt) {
+    if (!pith_stack_has(rt, 1)) return false;
+    PithValue initial = pith_pop(rt);
+    PithSignal *sig = pith_signal_new(rt, initial);
+    return pith_push(rt, PITH_SIGNAL(sig));
+}
+
+static bool builtin_button(PithRuntime *rt) {
+    /* ( label block -- view ) or ( label -- view ) */
+    if (!pith_stack_has(rt, 1)) return false;
+
+    PithBlock *on_click = NULL;
+    PithValue top = pith_peek(rt);
+
+    /* Check if top of stack is a block (on-click handler) */
+    if (PITH_IS_BLOCK(top)) {
+        on_click = malloc(sizeof(PithBlock));
+        *on_click = *pith_pop(rt).as.block;
+        if (!pith_stack_has(rt, 1)) {
+            free(on_click);
+            pith_error(rt, "button requires label");
+            return false;
+        }
+    }
+
+    PithValue label_val = pith_pop(rt);
+    if (!PITH_IS_STRING(label_val)) {
+        free(on_click);
+        pith_error(rt, "button requires string label");
+        return false;
+    }
+
+    PithView *view = pith_view_button(label_val.as.string, on_click);
+    pith_value_free(label_val);
+    return pith_push(rt, PITH_VIEW(view));
+}
+
 static bool builtin_vstack(PithRuntime *rt) {
     if (!pith_stack_has(rt, 1)) return false;
     PithValue a = pith_pop(rt);
@@ -3425,9 +3523,13 @@ static BuiltinEntry builtins[] = {
 
     /* Arithmetic */
     {"add", builtin_add},
+    {"+", builtin_add},
     {"subtract", builtin_subtract},
+    {"-", builtin_subtract},
     {"multiply", builtin_multiply},
+    {"*", builtin_multiply},
     {"divide", builtin_divide},
+    {"/", builtin_divide},
     {"mod", builtin_mod},
     {"abs", builtin_abs},
     {"min", builtin_min},
@@ -3467,6 +3569,10 @@ static BuiltinEntry builtins[] = {
     {"text", builtin_text},
     {"textfield", builtin_textfield},
     {"vstack", builtin_vstack},
+
+    /* Signals */
+    {"signal", builtin_signal},
+    {"button", builtin_button},
     {"hstack", builtin_hstack},
     {"spacer", builtin_spacer},
 
@@ -3577,6 +3683,45 @@ bool pith_execute_word(PithRuntime *rt, const char *name) {
     }
     g_exec_depth++;
 
+    /* Check for signal write syntax: word! */
+    size_t name_len = strlen(name);
+    if (name_len > 1 && name[name_len - 1] == '!') {
+        /* Get the slot name without the ! */
+        char *slot_name = malloc(name_len);
+        memcpy(slot_name, name, name_len - 1);
+        slot_name[name_len - 1] = '\0';
+
+        /* Look up the slot */
+        PithSlot *slot = NULL;
+        if (rt->current_dict) {
+            slot = pith_dict_lookup(rt->current_dict, slot_name);
+        }
+        if (!slot) {
+            /* Try root dict */
+            slot = pith_dict_lookup(rt->root, slot_name);
+        }
+
+        if (slot && slot->is_cached && slot->cached.type == VAL_SIGNAL) {
+            /* Pop value from stack and set signal */
+            if (!pith_stack_has(rt, 1)) {
+                free(slot_name);
+                g_exec_depth--;
+                pith_error(rt, "Signal write requires value on stack");
+                return false;
+            }
+            PithValue new_val = pith_pop(rt);
+            pith_signal_set(slot->cached.as.signal, new_val);
+            free(slot_name);
+            g_exec_depth--;
+            return true;
+        }
+
+        free(slot_name);
+        g_exec_depth--;
+        pith_error(rt, "Unknown signal: %s", name);
+        return false;
+    }
+
     /* Check builtins first */
     PithBuiltinFn builtin = find_builtin(name);
     if (builtin) {
@@ -3654,6 +3799,11 @@ bool pith_execute_word(PithRuntime *rt, const char *name) {
 bool pith_execute_slot(PithRuntime *rt, PithSlot *slot) {
     /* If slot has a cached value, push it instead of executing body */
     if (slot->is_cached) {
+        /* Always auto-unwrap signals when reading */
+        if (slot->cached.type == VAL_SIGNAL) {
+            PithSignal *sig = slot->cached.as.signal;
+            return pith_push(rt, pith_value_copy(sig->value));
+        }
         return pith_push(rt, pith_value_copy(slot->cached));
     }
 
@@ -3738,24 +3888,55 @@ bool pith_execute_slot(PithRuntime *rt, PithSlot *slot) {
                         }
                     }
 
-                    /* Execute the final slot */
+                    /* Get the final slot name */
                     const char *final_name = rt->tokens[chain_end].text;
-                    PithSlot *final_slot = pith_dict_lookup(current, final_name);
-                    if (!final_slot) {
-                        pith_error(rt, "Unknown slot '%s' in path", final_name);
-                        return false;
-                    }
+                    size_t final_len = strlen(final_name);
 
-                    PithDict *saved_dict = rt->current_dict;
-                    rt->current_dict = current;
-                    if (!pith_execute_slot(rt, final_slot)) {
+                    /* Check if this is a signal write (ends with !) */
+                    if (final_len > 1 && final_name[final_len - 1] == '!') {
+                        /* Signal write: strip the ! and look up the signal */
+                        char *slot_name = malloc(final_len);
+                        memcpy(slot_name, final_name, final_len - 1);
+                        slot_name[final_len - 1] = '\0';
+
+                        PithSlot *final_slot = pith_dict_lookup(current, slot_name);
+                        free(slot_name);
+
+                        if (!final_slot || !final_slot->is_cached ||
+                            final_slot->cached.type != VAL_SIGNAL) {
+                            pith_error(rt, "Unknown signal '%s'", final_name);
+                            return false;
+                        }
+
+                        /* Pop value from stack and set signal */
+                        if (!pith_stack_has(rt, 1)) {
+                            pith_error(rt, "Signal write requires value on stack");
+                            return false;
+                        }
+                        PithValue new_val = pith_pop(rt);
+                        pith_signal_set(final_slot->cached.as.signal, new_val);
+
+                        /* Skip all tokens in the chain */
+                        i = chain_end;
+                    } else {
+                        /* Normal slot execution */
+                        PithSlot *final_slot = pith_dict_lookup(current, final_name);
+                        if (!final_slot) {
+                            pith_error(rt, "Unknown slot '%s' in path", final_name);
+                            return false;
+                        }
+
+                        PithDict *saved_dict = rt->current_dict;
+                        rt->current_dict = current;
+                        if (!pith_execute_slot(rt, final_slot)) {
+                            rt->current_dict = saved_dict;
+                            return false;
+                        }
                         rt->current_dict = saved_dict;
-                        return false;
-                    }
-                    rt->current_dict = saved_dict;
 
-                    /* Skip all tokens in the chain */
-                    i = chain_end;
+                        /* Skip all tokens in the chain */
+                        i = chain_end;
+                    }
                 } else {
                     if (!pith_execute_word(rt, tok->text)) {
                         return false;
@@ -3959,7 +4140,10 @@ void pith_runtime_free(PithRuntime *rt) {
     
     /* Free current view */
     pith_view_free(rt->current_view);
-    
+
+    /* Free signals (the actual signals are freed when their containing slots are freed) */
+    free(rt->all_signals);
+
     free(rt);
 }
 
@@ -4291,6 +4475,45 @@ bool pith_runtime_load_string(PithRuntime *rt, const char *source, const char *n
                         break;
                 }
             }
+
+            /* Check for signal initialization pattern: <value> signal */
+            if (slot->body_end - slot->body_start == 2) {
+                PithToken *tok1 = &rt->tokens[slot->body_start];
+                PithToken *tok2 = &rt->tokens[slot->body_start + 1];
+                if (tok2->type == TOK_WORD && strcmp(tok2->text, "signal") == 0) {
+                    PithValue initial = PITH_NIL();
+                    bool valid = false;
+                    switch (tok1->type) {
+                        case TOK_STRING:
+                            initial = PITH_STRING(pith_strdup(tok1->text));
+                            valid = true;
+                            break;
+                        case TOK_NUMBER:
+                            initial = PITH_NUMBER(atof(tok1->text));
+                            valid = true;
+                            break;
+                        case TOK_TRUE:
+                            initial = PITH_BOOL(true);
+                            valid = true;
+                            break;
+                        case TOK_FALSE:
+                            initial = PITH_BOOL(false);
+                            valid = true;
+                            break;
+                        case TOK_NIL:
+                            initial = PITH_NIL();
+                            valid = true;
+                            break;
+                        default:
+                            break;
+                    }
+                    if (valid) {
+                        PithSignal *sig = pith_signal_new(rt, initial);
+                        slot->is_cached = true;
+                        slot->cached = PITH_SIGNAL(sig);
+                    }
+                }
+            }
         }
     }
 
@@ -4327,7 +4550,14 @@ bool pith_runtime_mount_ui(PithRuntime *rt) {
                 ui_slot->body_start, ui_slot->body_end);
     }
 
-    if (!pith_execute_slot(rt, ui_slot)) {
+    /* Set UI building context for signal auto-unwrap */
+    rt->ui_building = true;
+
+    bool success = pith_execute_slot(rt, ui_slot);
+
+    rt->ui_building = false;
+
+    if (!success) {
         return false;
     }
 

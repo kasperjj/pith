@@ -106,7 +106,13 @@ typedef struct {
     
     /* Current view tree (result of evaluating ui slot) */
     PithView *current_view;
-    
+
+    /* Reactive signals state */
+    bool ui_building;               /* True when building UI (for auto-subscribe) */
+    PithSignal **all_signals;       /* All signals for dirty checking */
+    size_t signal_count;
+    size_t signal_capacity;
+
 } PithRuntime;
 
 /* ========================================================================
@@ -250,6 +256,21 @@ void pith_gapbuf_move(PithGapBuffer *gb, int delta);
 void pith_gapbuf_goto(PithGapBuffer *gb, size_t pos);
 size_t pith_gapbuf_cursor(PithGapBuffer *gb);
 char* pith_gapbuf_to_string(PithGapBuffer *gb);
+
+/* ========================================================================
+   SIGNAL HELPERS
+   ======================================================================== */
+
+PithSignal* pith_signal_new(PithRuntime *rt, PithValue initial);
+void pith_signal_free(PithSignal *sig);
+void pith_signal_set(PithSignal *sig, PithValue value);
+PithValue pith_signal_get(PithSignal *sig);
+
+/* Check if any signals are dirty and need re-render */
+bool pith_runtime_has_dirty_signals(PithRuntime *rt);
+
+/* Clear all dirty flags after re-render */
+void pith_runtime_clear_dirty(PithRuntime *rt);
 
 /* ========================================================================
    VIEW HELPERS

@@ -252,11 +252,17 @@ int main(int argc, char *argv[]) {
                     continue; /* Input was consumed by textfield */
                 }
 
-                /* Handle click events for focus */
+                /* Handle click events for focus and buttons */
                 if (event.type == EVENT_CLICK && view) {
                     PithView *hit = pith_ui_hit_test(ui, view, event.as.click.x, event.as.click.y);
                     if (hit && hit->type == VIEW_TEXTFIELD) {
                         pith_ui_set_focus(ui, hit);
+                    } else if (hit && hit->type == VIEW_BUTTON) {
+                        /* Execute button's on_click block */
+                        if (hit->as.button.on_click) {
+                            pith_execute_block(rt, hit->as.button.on_click);
+                        }
+                        pith_ui_set_focus(ui, NULL);
                     } else {
                         pith_ui_set_focus(ui, NULL);
                     }
@@ -264,6 +270,19 @@ int main(int argc, char *argv[]) {
 
                 /* Pass event to runtime */
                 pith_runtime_handle_event(rt, event);
+            }
+
+            /* Check for dirty signals and re-render UI if needed */
+            if (pith_runtime_has_dirty_signals(rt)) {
+                /* Free old view */
+                if (rt->current_view) {
+                    pith_view_free(rt->current_view);
+                    rt->current_view = NULL;
+                }
+                /* Rebuild view tree */
+                pith_runtime_mount_ui(rt);
+                /* Clear dirty flags */
+                pith_runtime_clear_dirty(rt);
             }
 
             /* Get view tree from runtime and render */

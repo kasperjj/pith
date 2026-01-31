@@ -27,6 +27,7 @@ typedef enum {
     VAL_VIEW,       /* UI view */
     VAL_DICT,       /* Dictionary/component reference */
     VAL_GAPBUF,     /* Gap buffer for text editing */
+    VAL_SIGNAL,     /* Reactive signal */
 } PithValueType;
 
 /* Forward declarations */
@@ -38,6 +39,7 @@ typedef struct PithView PithView;
 typedef struct PithDict PithDict;
 typedef struct PithSlot PithSlot;
 typedef struct PithGapBuffer PithGapBuffer;
+typedef struct PithSignal PithSignal;
 
 /* Anonymous block - stores word indices to execute */
 struct PithBlock {
@@ -58,6 +60,7 @@ struct PithValue {
         PithView *view;
         PithDict *dict;
         PithGapBuffer *gapbuf;
+        PithSignal *signal;
     } as;
 };
 
@@ -90,6 +93,18 @@ struct PithGapBuffer {
     size_t capacity;    /* Total buffer size */
     size_t gap_start;   /* Start of gap (cursor position in content) */
     size_t gap_end;     /* End of gap (exclusive) */
+};
+
+/* Reactive signal - wraps a value and tracks dependencies
+ * When a signal is read during UI building, the reading slot subscribes.
+ * When a signal is written, all subscribers are marked dirty for re-render.
+ */
+struct PithSignal {
+    PithValue value;            /* The wrapped value */
+    PithSlot **subscribers;     /* Slots that depend on this signal */
+    size_t subscriber_count;
+    size_t subscriber_capacity;
+    bool dirty;                 /* Needs re-render */
 };
 
 /* ========================================================================
@@ -259,6 +274,7 @@ typedef struct {
 #define PITH_VIEW(v)        ((PithValue){ .type = VAL_VIEW, .as.view = (v) })
 #define PITH_DICT(v)        ((PithValue){ .type = VAL_DICT, .as.dict = (v) })
 #define PITH_GAPBUF(v)      ((PithValue){ .type = VAL_GAPBUF, .as.gapbuf = (v) })
+#define PITH_SIGNAL(v)      ((PithValue){ .type = VAL_SIGNAL, .as.signal = (v) })
 
 /* Type checking */
 #define PITH_IS_NIL(v)      ((v).type == VAL_NIL)
@@ -271,5 +287,6 @@ typedef struct {
 #define PITH_IS_VIEW(v)     ((v).type == VAL_VIEW)
 #define PITH_IS_DICT(v)     ((v).type == VAL_DICT)
 #define PITH_IS_GAPBUF(v)   ((v).type == VAL_GAPBUF)
+#define PITH_IS_SIGNAL(v)   ((v).type == VAL_SIGNAL)
 
 #endif /* PITH_TYPES_H */
