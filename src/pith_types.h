@@ -148,7 +148,7 @@ struct PithView {
         
         /* VIEW_TEXTFIELD */
         struct {
-            char *content;
+            PithGapBuffer *buffer;
             PithBlock *on_change;
         } textfield;
         

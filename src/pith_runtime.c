@@ -627,7 +627,7 @@ PithView* pith_view_textfield(const char *content, PithBlock *on_change) {
     PithView *view = malloc(sizeof(PithView));
     memset(view, 0, sizeof(PithView));
     view->type = VIEW_TEXTFIELD;
-    view->as.textfield.content = pith_strdup(content);
+    view->as.textfield.buffer = pith_gapbuf_from_string(content ? content : "");
     view->as.textfield.on_change = on_change;
     return view;
 }
@@ -669,7 +669,7 @@ void pith_view_free(PithView *view) {
             free(view->as.text.content);
             break;
         case VIEW_TEXTFIELD:
-            free(view->as.textfield.content);
+            pith_gapbuf_free(view->as.textfield.buffer);
             break;
         case VIEW_BUTTON:
             free(view->as.button.label);
@@ -2831,6 +2831,30 @@ static bool builtin_text(PithRuntime *rt) {
     return pith_push(rt, PITH_VIEW(view));
 }
 
+static bool builtin_textfield(PithRuntime *rt) {
+    if (!pith_stack_has(rt, 1)) return false;
+    PithValue a = pith_pop(rt);
+
+    PithView *view = NULL;
+    if (PITH_IS_STRING(a)) {
+        /* Create textfield from string */
+        view = pith_view_textfield(a.as.string, NULL);
+    } else if (PITH_IS_GAPBUF(a)) {
+        /* Create textfield with existing gap buffer */
+        view = malloc(sizeof(PithView));
+        memset(view, 0, sizeof(PithView));
+        view->type = VIEW_TEXTFIELD;
+        view->as.textfield.buffer = pith_gapbuf_copy(a.as.gapbuf);
+        view->as.textfield.on_change = NULL;
+    } else {
+        pith_error(rt, "textfield requires string or gapbuf");
+        return false;
+    }
+
+    pith_value_free(a);
+    return pith_push(rt, PITH_VIEW(view));
+}
+
 static bool builtin_vstack(PithRuntime *rt) {
     if (!pith_stack_has(rt, 1)) return false;
     PithValue a = pith_pop(rt);
@@ -3441,6 +3465,7 @@ static BuiltinEntry builtins[] = {
     
     /* UI */
     {"text", builtin_text},
+    {"textfield", builtin_textfield},
     {"vstack", builtin_vstack},
     {"hstack", builtin_hstack},
     {"spacer", builtin_spacer},

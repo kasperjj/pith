@@ -237,6 +237,21 @@ PithValue* pith_map_get(PithMap *map, const char *key);
 bool pith_map_has(PithMap *map, const char *key);
 
 /* ========================================================================
+   GAP BUFFER HELPERS
+   ======================================================================== */
+
+PithGapBuffer* pith_gapbuf_new(void);
+PithGapBuffer* pith_gapbuf_from_string(const char *str);
+void pith_gapbuf_free(PithGapBuffer *gb);
+PithGapBuffer* pith_gapbuf_copy(PithGapBuffer *gb);
+void pith_gapbuf_insert(PithGapBuffer *gb, const char *str);
+void pith_gapbuf_delete(PithGapBuffer *gb, int n);
+void pith_gapbuf_move(PithGapBuffer *gb, int delta);
+void pith_gapbuf_goto(PithGapBuffer *gb, size_t pos);
+size_t pith_gapbuf_cursor(PithGapBuffer *gb);
+char* pith_gapbuf_to_string(PithGapBuffer *gb);
+
+/* ========================================================================
    VIEW HELPERS
    ======================================================================== */
 

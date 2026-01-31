@@ -36,6 +36,13 @@ struct PithUI {
     /* Input state */
     int last_key;
     bool key_pending;
+
+    /* Focus state */
+    PithView *focused_view;
+
+    /* Click state - prevent duplicate click events per frame */
+    bool left_click_handled;
+    bool right_click_handled;
 };
 
 /* ========================================================================
@@ -226,10 +233,10 @@ PithUI* pith_ui_new(PithUIConfig config) {
     Vector2 scale_dpi = GetWindowScaleDPI();
     ui->scale = scale_dpi.x;  /* Assume uniform scaling */
 
-    /* Use unscaled cell dimensions (Raylib handles coordinate scaling) */
+    /* Use logical cell dimensions (raylib handles DPI scaling internally) */
     ui->cell_width = config.cell_width;
     ui->cell_height = config.cell_height;
-    /* But load font at scaled size for sharpness on high-DPI displays */
+    /* Load font at scaled size for sharpness on high-DPI displays */
     ui->font_size = (int)(config.font_size * ui->scale);
 
     /* Load font at scaled size for crisp rendering */
@@ -256,7 +263,7 @@ PithUI* pith_ui_new(PithUIConfig config) {
     /* Use point filtering for crisp pixel rendering */
     SetTextureFilter(ui->font.texture, TEXTURE_FILTER_POINT);
 
-    /* Calculate cell dimensions using screen size (Raylib scales automatically) */
+    /* Calculate initial cell count */
     ui->cells_wide = GetScreenWidth() / ui->cell_width;
     ui->cells_high = GetScreenHeight() / ui->cell_height;
 
@@ -288,6 +295,10 @@ void pith_ui_begin_frame(PithUI *ui) {
     int height = GetScreenHeight();
     ui->cells_wide = width / ui->cell_width;
     ui->cells_high = height / ui->cell_height;
+
+    /* Reset per-frame state */
+    ui->left_click_handled = false;
+    ui->right_click_handled = false;
 
     BeginDrawing();
     ClearBackground(rgba_to_color(ui->config.color_bg));
@@ -345,7 +356,7 @@ static void render_text(PithUI *ui, const char *text, int cell_x, int cell_y,
 
     Color c = rgba_to_color(color);
 
-    /* Draw at logical font size (font texture is high-res for sharpness) */
+    /* Draw at configured font size - raylib handles high-DPI scaling */
     DrawTextEx(ui->font, text, (Vector2){px, py},
                ui->config.font_size, 1, c);
 
@@ -392,6 +403,12 @@ static void render_rect(PithUI *ui, int x, int y, int w, int h, uint32_t color) 
 
 /* Calculate view size in cells */
 static void measure_view(PithUI *ui, PithView *view, int *out_w, int *out_h) {
+    if (!view) {
+        *out_w = 0;
+        *out_h = 0;
+        return;
+    }
+
     switch (view->type) {
         case VIEW_TEXT:
             /* Count lines and find max line width */
@@ -417,10 +434,20 @@ static void measure_view(PithUI *ui, PithView *view, int *out_w, int *out_h) {
             }
             break;
             
-        case VIEW_TEXTFIELD:
-            *out_w = view->as.textfield.content ? strlen(view->as.textfield.content) : 10;
+        case VIEW_TEXTFIELD: {
+            /* Measure based on gap buffer content, with minimum width */
+            int content_width = 10;
+            if (view->as.textfield.buffer) {
+                char *str = pith_gapbuf_to_string(view->as.textfield.buffer);
+                if (str) {
+                    content_width = (int)strlen(str) + 2; /* +2 for padding */
+                    free(str);
+                }
+            }
+            *out_w = content_width > 10 ? content_width : 10;
             *out_h = 1;
             break;
+        }
             
         case VIEW_BUTTON:
             *out_w = view->as.button.label ? strlen(view->as.button.label) + 4 : 6;
@@ -467,6 +494,12 @@ static void measure_view(PithUI *ui, PithView *view, int *out_w, int *out_h) {
             *out_w = 0;
             *out_h = 0;
             break;
+
+        default:
+            /* Unknown view type */
+            *out_w = 0;
+            *out_h = 0;
+            break;
     }
     
     /* Apply explicit size constraints */
@@ -481,6 +514,108 @@ static void measure_view(PithUI *ui, PithView *view, int *out_w, int *out_h) {
     int padding = get_padding(view, NULL);
     *out_w += padding * 2;
     *out_h += padding * 2;
+}
+
+/* Hit test - find view at cell coordinates */
+static PithView* hit_test_internal(PithUI *ui, PithView *view,
+                                    int x, int y, int width, int height,
+                                    int test_x, int test_y) {
+    if (!view) return NULL;
+
+    /* Check if point is within this view's bounds */
+    if (test_x < x || test_x >= x + width ||
+        test_y < y || test_y >= y + height) {
+        return NULL;
+    }
+
+    int padding = get_padding(view, NULL);
+    int inner_x = x + padding;
+    int inner_y = y + padding;
+    int inner_w = width - padding * 2;
+    int inner_h = height - padding * 2;
+
+    /* For container views, check children first (front to back) */
+    switch (view->type) {
+        case VIEW_VSTACK: {
+            int current_y = inner_y;
+            int gap = get_gap(view, NULL);
+            int fill_count = 0;
+            int fixed_height = 0;
+            for (size_t i = 0; i < view->as.stack.count; i++) {
+                PithView *child = view->as.stack.children[i];
+                if (child->style.fill || child->type == VIEW_SPACER) {
+                    fill_count++;
+                } else {
+                    int cw, ch;
+                    measure_view(ui, child, &cw, &ch);
+                    fixed_height += ch;
+                }
+            }
+            fixed_height += gap * (view->as.stack.count > 0 ? view->as.stack.count - 1 : 0);
+            int fill_height = fill_count > 0 ? (inner_h - fixed_height) / fill_count : 0;
+            if (fill_height < 0) fill_height = 0;
+
+            for (size_t i = 0; i < view->as.stack.count; i++) {
+                PithView *child = view->as.stack.children[i];
+                if (!child) continue;
+                int cw, ch;
+                measure_view(ui, child, &cw, &ch);
+                int child_h = (child->style.fill || child->type == VIEW_SPACER) ? fill_height : ch;
+                PithView *hit = hit_test_internal(ui, child, inner_x, current_y,
+                                                   inner_w, child_h, test_x, test_y);
+                if (hit) return hit;
+                current_y += child_h + gap;
+            }
+            break;
+        }
+        case VIEW_HSTACK: {
+            int current_x = inner_x;
+            int gap = get_gap(view, NULL);
+            int fill_count = 0;
+            int fixed_width = 0;
+            for (size_t i = 0; i < view->as.stack.count; i++) {
+                PithView *child = view->as.stack.children[i];
+                if (child->style.fill || child->type == VIEW_SPACER) {
+                    fill_count++;
+                } else {
+                    int cw, ch;
+                    measure_view(ui, child, &cw, &ch);
+                    fixed_width += cw;
+                }
+            }
+            fixed_width += gap * (view->as.stack.count > 0 ? view->as.stack.count - 1 : 0);
+            int fill_width = fill_count > 0 ? (inner_w - fixed_width) / fill_count : 0;
+            if (fill_width < 0) fill_width = 0;
+
+            for (size_t i = 0; i < view->as.stack.count; i++) {
+                PithView *child = view->as.stack.children[i];
+                if (!child) continue;
+                int cw, ch;
+                measure_view(ui, child, &cw, &ch);
+                int child_w = (child->style.fill || child->type == VIEW_SPACER) ? fill_width : cw;
+                PithView *hit = hit_test_internal(ui, child, current_x, inner_y,
+                                                   child_w, inner_h, test_x, test_y);
+                if (hit) return hit;
+                current_x += child_w + gap;
+            }
+            break;
+        }
+        default:
+            break;
+    }
+
+    /* Return this view if it's a focusable type */
+    if (view->type == VIEW_TEXTFIELD || view->type == VIEW_BUTTON) {
+        return view;
+    }
+
+    return NULL;
+}
+
+/* Public hit test function */
+PithView* pith_ui_hit_test(PithUI *ui, PithView *root, int cell_x, int cell_y) {
+    return hit_test_internal(ui, root, 0, 0, ui->cells_wide, ui->cells_high,
+                              cell_x, cell_y);
 }
 
 /* Internal rendering function */
@@ -535,16 +670,36 @@ static void render_view_internal(PithUI *ui, PithView *view,
             }
             break;
             
-        case VIEW_TEXTFIELD:
-            /* Draw text field with cursor indicator */
-            render_rect(ui, inner_x, inner_y, inner_w, 1, ui->config.color_bg);
-            render_border(ui, inner_x, inner_y, inner_w, 1, "all", 
+        case VIEW_TEXTFIELD: {
+            /* Draw text field with light background for contrast */
+            uint32_t field_bg = view->style.has_background ? bg : 0xf1f3f5ff; /* gray 1 */
+            uint32_t field_fg = view->style.has_color ? fg : 0x212529ff; /* gray 9 */
+
+            render_rect(ui, inner_x, inner_y, inner_w, 1, field_bg);
+            render_border(ui, inner_x, inner_y, inner_w, 1, "all",
                           ui->config.color_border);
-            if (view->as.textfield.content) {
-                render_text(ui, view->as.textfield.content, 
-                           inner_x + 1, inner_y, fg, false);
+
+            /* Get content from gap buffer */
+            if (view->as.textfield.buffer) {
+                char *content = pith_gapbuf_to_string(view->as.textfield.buffer);
+                if (content) {
+                    render_text(ui, content, inner_x + 1, inner_y, field_fg, false);
+
+                    /* Draw cursor if this field is focused */
+                    if (ui->focused_view == view) {
+                        size_t cursor_pos = pith_gapbuf_cursor(view->as.textfield.buffer);
+                        int cursor_x = inner_x + 1 + (int)cursor_pos;
+                        /* Draw cursor as a vertical bar */
+                        int px = cursor_x * ui->cell_width;
+                        int py = inner_y * ui->cell_height;
+                        DrawRectangle(px, py, 2, ui->cell_height,
+                                     rgba_to_color(field_fg));
+                    }
+                    free(content);
+                }
             }
             break;
+        }
             
         case VIEW_BUTTON: {
             /* Draw button with brackets */
@@ -689,18 +844,20 @@ PithEvent pith_ui_poll_event(PithUI *ui) {
         return event;
     }
     
-    /* Check for mouse click */
-    if (IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) {
+    /* Check for mouse click (only once per frame) */
+    if (!ui->left_click_handled && IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) {
+        ui->left_click_handled = true;
         event.type = EVENT_CLICK;
         Vector2 pos = GetMousePosition();
         event.as.click.x = (int)(pos.x / ui->cell_width);
         event.as.click.y = (int)(pos.y / ui->cell_height);
         event.as.click.button = 0;
-        event.as.click.target = NULL; /* TODO: hit testing */
+        event.as.click.target = NULL;
         return event;
     }
 
-    if (IsMouseButtonPressed(MOUSE_RIGHT_BUTTON)) {
+    if (!ui->right_click_handled && IsMouseButtonPressed(MOUSE_RIGHT_BUTTON)) {
+        ui->right_click_handled = true;
         event.type = EVENT_CLICK;
         Vector2 pos = GetMousePosition();
         event.as.click.x = (int)(pos.x / ui->cell_width);
@@ -711,6 +868,89 @@ PithEvent pith_ui_poll_event(PithUI *ui) {
     }
     
     return event;
+}
+
+/* ========================================================================
+   FOCUS MANAGEMENT
+   ======================================================================== */
+
+void pith_ui_set_focus(PithUI *ui, PithView *view) {
+    ui->focused_view = view;
+}
+
+PithView* pith_ui_get_focus(PithUI *ui) {
+    return ui->focused_view;
+}
+
+/* ========================================================================
+   TEXTFIELD INPUT HANDLING
+   ======================================================================== */
+
+bool pith_ui_handle_textfield_input(PithUI *ui, PithEvent event) {
+    if (!ui->focused_view || ui->focused_view->type != VIEW_TEXTFIELD) {
+        return false;
+    }
+
+    PithGapBuffer *buf = ui->focused_view->as.textfield.buffer;
+    if (!buf) return false;
+
+    if (event.type == EVENT_TEXT_INPUT) {
+        /* Insert typed character */
+        pith_gapbuf_insert(buf, event.as.text_input.text);
+        return true;
+    }
+
+    if (event.type == EVENT_KEY) {
+        int key = event.as.key.key_code;
+
+        /* Backspace - delete character before cursor */
+        if (key == KEY_BACKSPACE) {
+            pith_gapbuf_delete(buf, -1);
+            return true;
+        }
+
+        /* Delete - delete character after cursor */
+        if (key == KEY_DELETE) {
+            pith_gapbuf_delete(buf, 1);
+            return true;
+        }
+
+        /* Left arrow - move cursor left */
+        if (key == KEY_LEFT) {
+            pith_gapbuf_move(buf, -1);
+            return true;
+        }
+
+        /* Right arrow - move cursor right */
+        if (key == KEY_RIGHT) {
+            pith_gapbuf_move(buf, 1);
+            return true;
+        }
+
+        /* Home - move to start */
+        if (key == KEY_HOME) {
+            pith_gapbuf_goto(buf, 0);
+            return true;
+        }
+
+        /* End - move to end (need length function) */
+        if (key == KEY_END) {
+            char *str = pith_gapbuf_to_string(buf);
+            if (str) {
+                pith_gapbuf_goto(buf, strlen(str));
+                free(str);
+            }
+            return true;
+        }
+
+        /* Escape - unfocus */
+        if (key == KEY_ESCAPE) {
+            ui->focused_view = NULL;
+            return true;
+        }
+    }
+
+    return false;
 }
 
 /* ========================================================================

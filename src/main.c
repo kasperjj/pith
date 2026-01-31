@@ -247,6 +247,22 @@ int main(int argc, char *argv[]) {
             /* Poll and handle events */
             PithEvent event;
             while ((event = pith_ui_poll_event(ui)).type != EVENT_NONE) {
+                /* Handle textfield input if focused */
+                if (pith_ui_handle_textfield_input(ui, event)) {
+                    continue; /* Input was consumed by textfield */
+                }
+
+                /* Handle click events for focus */
+                if (event.type == EVENT_CLICK && view) {
+                    PithView *hit = pith_ui_hit_test(ui, view, event.as.click.x, event.as.click.y);
+                    if (hit && hit->type == VIEW_TEXTFIELD) {
+                        pith_ui_set_focus(ui, hit);
+                    } else {
+                        pith_ui_set_focus(ui, NULL);
+                    }
+                }
+
+                /* Pass event to runtime */
                 pith_runtime_handle_event(rt, event);
             }
 

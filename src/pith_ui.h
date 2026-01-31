@@ -86,6 +86,22 @@ void pith_ui_render_at(PithUI *ui, PithView *view, int x, int y, int width, int 
 /* Poll for the next event. Returns EVENT_NONE if no events pending. */
 PithEvent pith_ui_poll_event(PithUI *ui);
 
+/* Handle input for focused textfield. Returns true if input was consumed. */
+bool pith_ui_handle_textfield_input(PithUI *ui, PithEvent event);
+
+/* ========================================================================
+   FOCUS MANAGEMENT
+   ======================================================================== */
+
+/* Set the currently focused view (for text input) */
+void pith_ui_set_focus(PithUI *ui, PithView *view);
+
+/* Get the currently focused view */
+PithView* pith_ui_get_focus(PithUI *ui);
+
+/* Hit test - find view at cell coordinates */
+PithView* pith_ui_hit_test(PithUI *ui, PithView *root, int cell_x, int cell_y);
+
 /* ========================================================================
    UTILITIES
    ======================================================================== */

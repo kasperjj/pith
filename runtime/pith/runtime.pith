@@ -45,7 +45,9 @@ header:
     ui:
         [
             "Pith Editor" text
-            " v0.1" text
+            spacer
+            "Search: " text
+            "" textfield
         ] hstack
     end
 end
@@ -54,7 +56,7 @@ end
 editor-area:
     parent: root
     fill: true
-
+    
     ui:
         [
             sidebar
