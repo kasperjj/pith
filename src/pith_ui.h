@@ -92,6 +92,9 @@ bool pith_ui_handle_textfield_input(PithUI *ui, PithEvent event);
 /* Position cursor in textfield/textarea based on click coordinates */
 void pith_ui_click_to_cursor(PithView *view, int click_x, int click_y);
 
+/* Commit text widget content to its source signal (call on blur) */
+void pith_ui_commit_text_widget(PithView *view);
+
 /* ========================================================================
    FOCUS MANAGEMENT
    ======================================================================== */

@@ -18,7 +18,8 @@ app:
 
     # State (using signals for reactivity)
     count: 0 signal
-    buffer: "Welcome to Pith!\n\nThis is a minimal, stack-based editor runtime.\n\nEdit this file to change the UI."
+    buffer: "Welcome to Pith!\n\nThis is a minimal, stack-based editor runtime.\n\nEdit this file to change the UI." signal
+    search: "" signal
     status: "Ready"
 
     # UI definition
@@ -47,9 +48,9 @@ counter-demo:
     ui:
         [
             "Count: " text
-            app.count to-string text
-            "+" do app.count 1 + app.count! end button
-            "-" do app.count 1 - app.count! end button
+            app.count deref to-string text
+            "+" do app.count deref 1 + app.count! end button
+            "-" do app.count deref 1 - app.count! end button
         ] hstack
     end
 end
@@ -64,7 +65,7 @@ header:
             "Pith Editor" text
             spacer
             "Search: " text
-            "" textfield
+            app.search textfield
         ] hstack
     end
 end

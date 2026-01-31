@@ -166,12 +166,14 @@ struct PithView {
         struct {
             PithGapBuffer *buffer;
             PithBlock *on_change;
+            PithSignal *source_signal;  /* Signal to update on blur */
         } textfield;
 
         /* VIEW_TEXTAREA */
         struct {
             PithGapBuffer *buffer;
             PithBlock *on_change;
+            PithSignal *source_signal;  /* Signal to update on blur */
             int scroll_offset;    /* First visible line for scrolling */
             int visible_height;   /* Cached visible height from last render */
         } textarea;

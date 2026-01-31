@@ -255,6 +255,13 @@ int main(int argc, char *argv[]) {
                 /* Handle click events for focus and buttons */
                 if (event.type == EVENT_CLICK && view) {
                     PithView *hit = pith_ui_hit_test(ui, view, event.as.click.x, event.as.click.y);
+                    PithView *old_focus = pith_ui_get_focus(ui);
+
+                    /* Commit old focus's content before changing focus */
+                    if (old_focus && old_focus != hit) {
+                        pith_ui_commit_text_widget(old_focus);
+                    }
+
                     if (hit && (hit->type == VIEW_TEXTFIELD || hit->type == VIEW_TEXTAREA)) {
                         pith_ui_set_focus(ui, hit);
                         pith_ui_click_to_cursor(hit, event.as.click.x, event.as.click.y);
@@ -275,6 +282,9 @@ int main(int argc, char *argv[]) {
 
             /* Check for dirty signals and re-render UI if needed */
             if (pith_runtime_has_dirty_signals(rt)) {
+                /* Clear focus before freeing old view */
+                pith_ui_set_focus(ui, NULL);
+
                 /* Free old view */
                 if (rt->current_view) {
                     pith_view_free(rt->current_view);

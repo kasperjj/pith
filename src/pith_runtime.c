@@ -3045,9 +3045,28 @@ static bool builtin_textfield(PithRuntime *rt) {
     PithValue a = pith_pop(rt);
 
     PithView *view = NULL;
-    if (PITH_IS_STRING(a)) {
+    PithSignal *source_signal = NULL;
+
+    if (PITH_IS_SIGNAL(a)) {
+        /* Create textfield from signal - store reference for blur updates */
+        source_signal = a.as.signal;
+        PithValue val = pith_signal_get(source_signal);
+        const char *content = "";
+        if (PITH_IS_STRING(val)) {
+            content = val.as.string;
+        } else if (PITH_IS_GAPBUF(val)) {
+            char *str = pith_gapbuf_to_string(val.as.gapbuf);
+            view = pith_view_textfield(str, NULL);
+            view->as.textfield.source_signal = source_signal;
+            free(str);
+            return pith_push(rt, PITH_VIEW(view));
+        }
+        view = pith_view_textfield(content, NULL);
+        view->as.textfield.source_signal = source_signal;
+    } else if (PITH_IS_STRING(a)) {
         /* Create textfield from string */
         view = pith_view_textfield(a.as.string, NULL);
+        pith_value_free(a);
     } else if (PITH_IS_GAPBUF(a)) {
         /* Create textfield with existing gap buffer */
         view = malloc(sizeof(PithView));
@@ -3055,12 +3074,12 @@ static bool builtin_textfield(PithRuntime *rt) {
         view->type = VIEW_TEXTFIELD;
         view->as.textfield.buffer = pith_gapbuf_copy(a.as.gapbuf);
         view->as.textfield.on_change = NULL;
+        pith_value_free(a);
     } else {
-        pith_error(rt, "textfield requires string or gapbuf");
+        pith_error(rt, "textfield requires string, gapbuf, or signal");
         return false;
     }
 
-    pith_value_free(a);
     return pith_push(rt, PITH_VIEW(view));
 }
 
@@ -3069,8 +3088,27 @@ static bool builtin_textarea(PithRuntime *rt) {
     PithValue a = pith_pop(rt);
 
     PithView *view = NULL;
-    if (PITH_IS_STRING(a)) {
+    PithSignal *source_signal = NULL;
+
+    if (PITH_IS_SIGNAL(a)) {
+        /* Create textarea from signal - store reference for blur updates */
+        source_signal = a.as.signal;
+        PithValue val = pith_signal_get(source_signal);
+        const char *content = "";
+        if (PITH_IS_STRING(val)) {
+            content = val.as.string;
+        } else if (PITH_IS_GAPBUF(val)) {
+            char *str = pith_gapbuf_to_string(val.as.gapbuf);
+            view = pith_view_textarea(str, NULL);
+            view->as.textarea.source_signal = source_signal;
+            free(str);
+            return pith_push(rt, PITH_VIEW(view));
+        }
+        view = pith_view_textarea(content, NULL);
+        view->as.textarea.source_signal = source_signal;
+    } else if (PITH_IS_STRING(a)) {
         view = pith_view_textarea(a.as.string, NULL);
+        pith_value_free(a);
     } else if (PITH_IS_GAPBUF(a)) {
         view = malloc(sizeof(PithView));
         memset(view, 0, sizeof(PithView));
@@ -3078,12 +3116,12 @@ static bool builtin_textarea(PithRuntime *rt) {
         view->as.textarea.buffer = pith_gapbuf_copy(a.as.gapbuf);
         view->as.textarea.on_change = NULL;
         view->as.textarea.scroll_offset = 0;
+        pith_value_free(a);
     } else {
-        pith_error(rt, "textarea requires string or gapbuf");
+        pith_error(rt, "textarea requires string, gapbuf, or signal");
         return false;
     }
 
-    pith_value_free(a);
     return pith_push(rt, PITH_VIEW(view));
 }
 
@@ -3092,6 +3130,18 @@ static bool builtin_signal(PithRuntime *rt) {
     PithValue initial = pith_pop(rt);
     PithSignal *sig = pith_signal_new(rt, initial);
     return pith_push(rt, PITH_SIGNAL(sig));
+}
+
+static bool builtin_deref(PithRuntime *rt) {
+    /* Dereference a signal to get its value. Non-signals pass through unchanged. */
+    if (!pith_stack_has(rt, 1)) return false;
+    PithValue a = pith_pop(rt);
+    if (PITH_IS_SIGNAL(a)) {
+        PithValue val = pith_value_copy(pith_signal_get(a.as.signal));
+        return pith_push(rt, val);
+    }
+    /* Non-signal values pass through */
+    return pith_push(rt, a);
 }
 
 static bool builtin_button(PithRuntime *rt) {
@@ -3744,6 +3794,7 @@ static BuiltinEntry builtins[] = {
 
     /* Signals */
     {"signal", builtin_signal},
+    {"deref", builtin_deref},
     {"button", builtin_button},
     {"hstack", builtin_hstack},
     {"spacer", builtin_spacer},
@@ -3971,11 +4022,7 @@ bool pith_execute_word(PithRuntime *rt, const char *name) {
 bool pith_execute_slot(PithRuntime *rt, PithSlot *slot) {
     /* If slot has a cached value, push it instead of executing body */
     if (slot->is_cached) {
-        /* Always auto-unwrap signals when reading */
-        if (slot->cached.type == VAL_SIGNAL) {
-            PithSignal *sig = slot->cached.as.signal;
-            return pith_push(rt, pith_value_copy(sig->value));
-        }
+        /* Push the cached value directly (including signals) */
         return pith_push(rt, pith_value_copy(slot->cached));
     }
 

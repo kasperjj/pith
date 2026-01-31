@@ -1181,6 +1181,25 @@ void pith_ui_click_to_cursor(PithView *view, int click_x, int click_y) {
     }
 }
 
+/* Commit text widget content to its source signal */
+void pith_ui_commit_text_widget(PithView *view) {
+    if (!view) return;
+
+    if (view->type == VIEW_TEXTFIELD) {
+        PithSignal *sig = view->as.textfield.source_signal;
+        if (sig && view->as.textfield.buffer) {
+            char *content = pith_gapbuf_to_string(view->as.textfield.buffer);
+            pith_signal_set(sig, PITH_STRING(content));
+        }
+    } else if (view->type == VIEW_TEXTAREA) {
+        PithSignal *sig = view->as.textarea.source_signal;
+        if (sig && view->as.textarea.buffer) {
+            char *content = pith_gapbuf_to_string(view->as.textarea.buffer);
+            pith_signal_set(sig, PITH_STRING(content));
+        }
+    }
+}
+
 /* ========================================================================
    UTILITIES
    ======================================================================== */
