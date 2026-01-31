@@ -155,7 +155,7 @@ typedef struct {
 struct PithView {
     PithViewType type;
     PithStyle style;
-    
+
     union {
         /* VIEW_TEXT */
         struct {
@@ -193,6 +193,12 @@ struct PithView {
             size_t count;
         } stack;
     } as;
+
+    /* Cached render position (set during rendering for click handling) */
+    int render_x;
+    int render_y;
+    int render_w;
+    int render_h;
 };
 
 /* ========================================================================

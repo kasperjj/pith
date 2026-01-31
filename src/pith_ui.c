@@ -653,11 +653,17 @@ PithView* pith_ui_hit_test(PithUI *ui, PithView *root, int cell_x, int cell_y) {
 }
 
 /* Internal rendering function */
-static void render_view_internal(PithUI *ui, PithView *view, 
+static void render_view_internal(PithUI *ui, PithView *view,
                                   int x, int y, int width, int height,
                                   PithStyle *inherited_style) {
     if (!view) return;
-    
+
+    /* Cache render position for click handling */
+    view->render_x = x;
+    view->render_y = y;
+    view->render_w = width;
+    view->render_h = height;
+
     int padding = get_padding(view, inherited_style);
     uint32_t bg = get_background(view, inherited_style, 0);
     uint32_t fg = get_color(view, inherited_style, ui->config.color_fg);
@@ -1116,6 +1122,63 @@ bool pith_ui_handle_textfield_input(PithUI *ui, PithEvent event) {
     }
 
     return false;
+}
+
+/* Position cursor in textfield/textarea based on click coordinates */
+void pith_ui_click_to_cursor(PithView *view, int click_x, int click_y) {
+    if (!view) return;
+
+    if (view->type == VIEW_TEXTFIELD) {
+        PithGapBuffer *buf = view->as.textfield.buffer;
+        if (!buf) return;
+
+        /* Calculate position within the textfield */
+        /* render_x + 1 is where text starts (1 cell padding) */
+        int text_start_x = view->render_x + 1;
+        int char_pos = click_x - text_start_x;
+
+        if (char_pos < 0) char_pos = 0;
+
+        /* Clamp to buffer length */
+        size_t len = pith_gapbuf_length(buf);
+        if ((size_t)char_pos > len) char_pos = (int)len;
+
+        pith_gapbuf_goto(buf, (size_t)char_pos);
+
+    } else if (view->type == VIEW_TEXTAREA) {
+        PithGapBuffer *buf = view->as.textarea.buffer;
+        if (!buf) return;
+
+        /* Calculate position within the textarea */
+        /* render_x + 1 is where text starts (1 cell padding) */
+        /* render_y is where the first visible line starts */
+        int text_start_x = view->render_x + 1;
+        int text_start_y = view->render_y;
+
+        int col = click_x - text_start_x;
+        int visible_line = click_y - text_start_y;
+
+        if (col < 0) col = 0;
+        if (visible_line < 0) visible_line = 0;
+
+        /* Convert visible line to actual line number using scroll offset */
+        int scroll_offset = view->as.textarea.scroll_offset;
+        size_t line = (size_t)(scroll_offset + visible_line);
+
+        /* Clamp to valid line range */
+        size_t total_lines = pith_gapbuf_line_count(buf);
+        if (line >= total_lines) {
+            line = total_lines > 0 ? total_lines - 1 : 0;
+        }
+
+        /* Clamp column to line length */
+        size_t line_len = pith_gapbuf_line_length(buf, line);
+        if ((size_t)col > line_len) col = (int)line_len;
+
+        /* Move cursor to the calculated position */
+        size_t pos = pith_gapbuf_pos_from_line_col(buf, line, (size_t)col);
+        pith_gapbuf_goto(buf, pos);
+    }
 }
 
 /* ========================================================================

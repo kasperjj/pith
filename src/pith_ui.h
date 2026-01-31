@@ -89,6 +89,9 @@ PithEvent pith_ui_poll_event(PithUI *ui);
 /* Handle input for focused textfield. Returns true if input was consumed. */
 bool pith_ui_handle_textfield_input(PithUI *ui, PithEvent event);
 
+/* Position cursor in textfield/textarea based on click coordinates */
+void pith_ui_click_to_cursor(PithView *view, int click_x, int click_y);
+
 /* ========================================================================
    FOCUS MANAGEMENT
    ======================================================================== */

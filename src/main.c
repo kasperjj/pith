@@ -257,6 +257,7 @@ int main(int argc, char *argv[]) {
                     PithView *hit = pith_ui_hit_test(ui, view, event.as.click.x, event.as.click.y);
                     if (hit && (hit->type == VIEW_TEXTFIELD || hit->type == VIEW_TEXTAREA)) {
                         pith_ui_set_focus(ui, hit);
+                        pith_ui_click_to_cursor(hit, event.as.click.x, event.as.click.y);
                     } else if (hit && hit->type == VIEW_BUTTON) {
                         /* Execute button's on_click block */
                         if (hit->as.button.on_click) {
